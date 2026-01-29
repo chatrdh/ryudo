@@ -16,9 +16,9 @@ Ryudo is a smart mapping engine that treats the world as a **living system**. Un
 
 This allows the platform to solve complex movement optimization problems for **any industry**:
 
-- 🌊 **Disaster Management** — Guiding rescue boats through a storm
-- 🌾 **Agriculture** — Routing tractors during a short harvest window  
-- 🚚 **Logistics** — Managing delivery fleets in a busy city
+- **Disaster Management** — Guiding rescue boats through a storm
+- **Agriculture** — Routing tractors during a short harvest window  
+- **Logistics** — Managing delivery fleets in a busy city
 
 Ryudo turns raw data into clear, efficient action plans for any mission.
 
@@ -35,7 +35,7 @@ Ryudo turns raw data into clear, efficient action plans for any mission.
 
 ## Architecture
 
-![The Engine Architecture](image.png)
+
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -75,15 +75,15 @@ Ryudo turns raw data into clear, efficient action plans for any mission.
 
 The platform uses three types of AI agents that **observe reality and constrain the graph**:
 
-### 🌍 Environmental Agents (The Physics)
+### Environmental Agents (The Physics)
 Map external forces (weather, terrain, chemical plumes) to spatial zones.  
 **Action:** `Zone_Deletion` — *"This polygon is flooded/burning/toxic. Remove it from the graph."*
 
-### 🔌 Infrastructure Agents (The Network)
+### Infrastructure Agents (The Network)
 Map system dependencies and cascading failures.  
 **Action:** `Edge_Severing` — *"Node A failed, so connected Nodes B and C are effectively dead."*
 
-### ⏱️ Temporal Agents (The Clock)
+### Temporal Agents (The Clock)
 Predict the lifespan of a route or asset.  
 **Action:** `Time_To_Live` — *"This edge is valid for 2 hours, then cost becomes Infinity."*
 
