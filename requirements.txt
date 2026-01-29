@@ -1,0 +1,12 @@
+osmnx>=1.9.0
+folium>=0.15.0
+geopandas>=0.14.0
+networkx>=3.0
+shapely>=2.0
+matplotlib>=3.8.0
+langgraph>=0.2.0
+langchain-core>=0.3.0
+fastapi>=0.109.0
+uvicorn>=0.27.0
+websockets>=12.0
+openai>=1.0.0
