@@ -16,6 +16,10 @@ import os
 from typing import Dict, Any, List
 from contextlib import asynccontextmanager
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
@@ -26,6 +30,14 @@ from agents.state import RyudoState, GraphConstraint
 from agents.environmental import environmental_agent, create_damage_zones, create_storm_surge_zone
 from agents.infrastructure import infrastructure_agent, FACILITIES
 from agents.temporal import temporal_agent
+
+# Import LLM client for dynamic reasoning
+from agents.llm_client import (
+    call_environmental_agent,
+    call_infrastructure_agent,
+    call_temporal_agent,
+    call_coordinator,
+)
 
 
 # ============================================================================
@@ -68,6 +80,10 @@ manager = ConnectionManager()
 # Workflow State
 # ============================================================================
 
+# ============================================================================
+# Workflow State
+# ============================================================================
+
 workflow_state = {
     "running": False,
     "constraints": [],
@@ -75,6 +91,14 @@ workflow_state = {
     "base_graph_loaded": False,
     "completed": False,
 }
+
+SIMULATION_SPEED = 1.0  # Multiplier: 1.0 = normal, 2.0 = 2x faster
+
+async def wait(seconds: float):
+    """Wait for a duration adjusted by simulation speed."""
+    if SIMULATION_SPEED > 0:
+        await asyncio.sleep(seconds / SIMULATION_SPEED)
+
 
 
 # ============================================================================
@@ -126,9 +150,26 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Ryudo Real-Time Visualization", lifespan=lifespan)
 
-# Serve static files
+# Add CORS middleware
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Serve static files - prefer React build, fallback to legacy static
+ui_dist_dir = os.path.join(os.path.dirname(__file__), "ui", "dist")
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 os.makedirs(static_dir, exist_ok=True)
+
+# Mount React build assets if available
+if os.path.exists(ui_dist_dir):
+    app.mount("/assets", StaticFiles(directory=os.path.join(ui_dist_dir, "assets")), name="assets")
+
+# Also keep legacy static mount
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
@@ -138,11 +179,28 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.get("/")
 async def root():
-    """Serve the main frontend."""
-    index_path = os.path.join(static_dir, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return HTMLResponse("<h1>Ryudo Server Running</h1><p>Frontend not found at /static/index.html</p>")
+    """Serve the main frontend - prefer React build."""
+    # First, try React build
+    react_index = os.path.join(ui_dist_dir, "index.html")
+    if os.path.exists(react_index):
+        return FileResponse(react_index)
+    
+    # Fallback to legacy static
+    legacy_index = os.path.join(static_dir, "index.html")
+    if os.path.exists(legacy_index):
+        return FileResponse(legacy_index)
+    
+    return HTMLResponse("<h1>Ryudo Server Running</h1><p>Run 'npm run build' in ui/ to build the React frontend.</p>")
+
+
+@app.post("/api/start")
+async def start_workflow():
+    """Manually start the workflow via HTTP."""
+    if not workflow_state["running"]:
+        asyncio.create_task(run_workflow_with_updates())
+        return {"status": "started", "message": "Workflow started in background"}
+    return {"status": "running", "message": "Workflow already running"}
+
 
 
 @app.websocket("/ws")
@@ -170,6 +228,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 workflow_state["constraints"] = []
                 workflow_state["completed"] = False
                 await manager.broadcast({"type": "reset"})
+            elif message.get("action") == "set_speed":
+                global SIMULATION_SPEED
+                try:
+                    SIMULATION_SPEED = float(message.get("speed", 1.0))
+                    print(f"[WS] Simulation speed set to {SIMULATION_SPEED}x")
+                except ValueError:
+                    pass
                 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
@@ -207,7 +272,7 @@ async def run_workflow_with_updates():
         "message": "Starting LangGraph Agent Workflow",
     })
     
-    await asyncio.sleep(0.5)
+    await wait(0.2)
     
     # Step 1: Load base graph (simulated - we won't actually load it for speed)
     await manager.broadcast({
@@ -216,7 +281,7 @@ async def run_workflow_with_updates():
         "step": "load_graph",
         "message": "Loading road network for Visakhapatnam...",
     })
-    await asyncio.sleep(1)
+    await wait(0.3)
     
     workflow_state["base_graph_loaded"] = True
     await manager.broadcast({
@@ -226,7 +291,7 @@ async def run_workflow_with_updates():
         "message": "Road network loaded: 38,567 nodes, 100,459 edges",
     })
     
-    await asyncio.sleep(0.5)
+    await wait(0.2)
     
     # Step 2: Environmental Agent
     await manager.broadcast({
@@ -234,43 +299,16 @@ async def run_workflow_with_updates():
         "agent": "FloodSentinel",
         "message": "Environmental Agent analyzing cyclone data...",
     })
-    await asyncio.sleep(0.5)
+    await wait(0.2)
     
-    # Send LLM reasoning
+    # Send LLM reasoning (actual call to Gemini)
+    env_reasoning = call_environmental_agent(CYCLONE_HUDHUD_CONFIG)
     await manager.broadcast({
         "type": "reasoning",
         "agent": "FloodSentinel",
-        "content": """HAZARD ASSESSMENT FOR CYCLONE HUDHUD
-
-1. EXTREME DAMAGE ZONE:
-   - 0-10km from eye (17.68°N, 83.35°E)
-   - Catastrophic winds exceeding 185 km/h
-   - Complete structural destruction expected
-   - Absolutely no rescue operations permitted
-
-2. SEVERE DAMAGE ZONE:
-   - 10-25km from eye
-   - Wind speeds 100-150 km/h
-   - Major structural damage, downed power lines
-   - Rescue teams should exercise extreme caution
-
-3. MODERATE DAMAGE ZONE:
-   - 25-50km from eye
-   - Wind speeds 60-100 km/h
-   - Trees down, localized flooding
-   - Proceed with caution
-
-4. STORM SURGE RISK:
-   - Coastal flooding up to 2.5m height
-   - Extends 2km inland
-   - High risk of road inundation
-
-5. KEY CONSTRAINTS:
-   - Avoid all areas within 10km of eye
-   - Coastal routes impassable due to surge
-   - Eastern approach roads blocked"""
+        "content": env_reasoning
     })
-    await asyncio.sleep(0.8)
+    await wait(0.4)
     
     # Generate damage zones
     damage_zones = create_damage_zones(
@@ -315,7 +353,7 @@ async def run_workflow_with_updates():
             "total": len(workflow_state["constraints"]),
         })
         
-        await asyncio.sleep(0.6)
+        await wait(0.2)
     
     # Storm surge zone
     surge_zone = create_storm_surge_zone(CYCLONE_HUDHUD_CONFIG)
@@ -340,7 +378,7 @@ async def run_workflow_with_updates():
         "total": len(workflow_state["constraints"]),
     })
     
-    await asyncio.sleep(0.5)
+    await wait(0.2)
     
     # Cyclone eye marker
     await manager.broadcast({
@@ -358,7 +396,7 @@ async def run_workflow_with_updates():
         "constraint_count": 4,
     })
     
-    await asyncio.sleep(0.5)
+    await wait(0.2)
     
     # Step 3: Infrastructure Agent
     await manager.broadcast({
@@ -366,40 +404,20 @@ async def run_workflow_with_updates():
         "agent": "GridGuardian",
         "message": "Infrastructure Agent checking power grid...",
     })
-    await asyncio.sleep(0.5)
+    await wait(0.2)
     
-    # Send LLM reasoning
+    # Send LLM reasoning (actual call to Gemini)
+    infra_data = {
+        "failed_substations": ["substation_north", "substation_central"],
+        "facilities": list(FACILITIES.keys())
+    }
+    infra_reasoning = call_infrastructure_agent(infra_data, CYCLONE_HUDHUD_CONFIG)
     await manager.broadcast({
         "type": "reasoning",
         "agent": "GridGuardian",
-        "content": """INFRASTRUCTURE CASCADE ANALYSIS
-
-1. SUBSTATIONS AFFECTED:
-   - substation_north: OFFLINE (within 15km of eye)
-   - substation_central: OFFLINE (power lines severed)
-   - substation_south: OPERATIONAL
-
-2. FACILITIES OFFLINE:
-   - King George Hospital: NO POWER
-   - Community Center North: NO POWER
-   - School Shelter North: NO POWER
-   - Town Hall: NO POWER
-
-3. FACILITIES OPERATIONAL:
-   - Naval Hospital: ACTIVE (backup power)
-   - Industrial Area Shelter: ACTIVE
-
-4. CASCADE RISKS:
-   - Water pumping stations may fail in 2-3 hours
-   - Cell towers running on backup batteries
-   - Hospital generators have 6hr fuel reserves
-
-5. RECOMMENDATIONS:
-   - Route casualties to Naval Hospital
-   - Prioritize fuel delivery to hospitals
-   - Use operational shelters in southern sector"""
+        "content": infra_reasoning
     })
-    await asyncio.sleep(0.8)
+    await wait(0.4)
     
     # Simulated infrastructure failures
     failed_substations = ["substation_north", "substation_central"]
@@ -422,7 +440,7 @@ async def run_workflow_with_updates():
             "popup": f"⚡ {sub_id}<br>Status: OFFLINE",
             "icon": "power_off",
         })
-        await asyncio.sleep(0.4)
+        await wait(0.1)
     
     # Send facility constraints
     for fac_id, lat, lon, name, fac_type in affected_facilities:
@@ -454,7 +472,7 @@ async def run_workflow_with_updates():
             "icon": "offline",
         })
         
-        await asyncio.sleep(0.4)
+        await wait(0.1)
     
     # Add operational facilities
     operational = [
@@ -472,7 +490,7 @@ async def run_workflow_with_updates():
             "popup": f"✅ {name}<br>Status: OPERATIONAL",
             "icon": "active",
         })
-        await asyncio.sleep(0.3)
+        await wait(0.1)
     
     await manager.broadcast({
         "type": "agent_complete",
@@ -481,7 +499,7 @@ async def run_workflow_with_updates():
         "constraint_count": 5,
     })
     
-    await asyncio.sleep(0.5)
+    await wait(0.2)
     
     # Step 4: Temporal Agent
     await manager.broadcast({
@@ -489,38 +507,21 @@ async def run_workflow_with_updates():
         "agent": "RoutePilot",
         "message": "Temporal Agent predicting route validity...",
     })
-    await asyncio.sleep(0.5)
+    await wait(0.2)
     
-    # Send LLM reasoning
+    # Send LLM reasoning (actual call to Gemini)
+    forecast_data = {
+        "cyclone": CYCLONE_HUDHUD_CONFIG,
+        "current_time": "2014-10-12T14:00:00",
+        "forecast_hours": 6
+    }
+    temporal_reasoning = call_temporal_agent(forecast_data, workflow_state["constraints"])
     await manager.broadcast({
         "type": "reasoning",
         "agent": "RoutePilot",
-        "content": """TEMPORAL ROUTE ANALYSIS
-
-1. DETERIORATING ROUTES:
-   - 25-35km radius: TTL 2 hours (moderate→severe)
-   - 10-25km radius: TTL 1 hour (severe→extreme)
-   - Coastal roads: TTL 30 minutes (storm surge)
-
-2. IMPROVING ROUTES:
-   - Western bypass: May clear in 4-6 hours
-   - Southern highway: Passable after eye passes
-
-3. STABLE ROUTES:
-   - Routes outside 50km radius stable for 3+ hours
-   - Elevated inland roads remain passable
-
-4. CRITICAL WINDOWS:
-   - Next 1-2 hours: Last chance for eastern rescues
-   - Eye passage window: ~45 minutes of calm
-   - Post-storm: 6-12 hours before flooding recedes
-
-5. RECOMMENDATIONS:
-   - Execute eastern rescues IMMEDIATELY
-   - Stage teams for eye passage operations
-   - Plan western routes for post-storm phase"""
+        "content": temporal_reasoning
     })
-    await asyncio.sleep(0.8)
+    await wait(0.4)
     
     # TTL predictions
     ttl_constraints = [
@@ -562,7 +563,7 @@ async def run_workflow_with_updates():
             "total": len(workflow_state["constraints"]),
         })
         
-        await asyncio.sleep(0.5)
+        await wait(0.2)
     
     await manager.broadcast({
         "type": "agent_complete",
@@ -571,7 +572,7 @@ async def run_workflow_with_updates():
         "constraint_count": 3,
     })
     
-    await asyncio.sleep(0.5)
+    await wait(0.2)
     
     # Step 5: Mission Coordinator
     await manager.broadcast({
@@ -579,41 +580,25 @@ async def run_workflow_with_updates():
         "agent": "Coordinator",
         "message": "Mission Coordinator processing constraints...",
     })
-    await asyncio.sleep(0.5)
+    await wait(0.2)
     
-    # Send LLM reasoning
+    # Send LLM reasoning (actual call to Gemini)
+    solution_summary = {
+        "targets_reached": len([t for t in RESCUE_TARGETS if t["zone"] not in ["extreme", "flooded"]]),
+        "unreachable": [t["name"] for t in RESCUE_TARGETS if t["zone"] in ["extreme", "flooded"]],
+        "total_distance": 15000,  # Estimated
+    }
+    coordinator_reasoning = call_coordinator(
+        workflow_state["constraints"],
+        RESCUE_TARGETS,
+        solution_summary
+    )
     await manager.broadcast({
         "type": "reasoning",
         "agent": "Coordinator",
-        "content": """MISSION SYNTHESIS
-
-1. SITUATION SUMMARY:
-   Critical constraint levels across all systems.
-   12 constraints from 3 specialist agents.
-   18,113 road segments blocked.
-   8 families require immediate evacuation.
-
-2. PRIORITY ACTIONS:
-   1. Evacuate coastal families (highest surge risk)
-   2. Use southern routes to Naval Hospital
-   3. Stage teams at eye passage corridor
-
-3. RESOURCE ALLOCATION:
-   - 2 rescue teams to coastal sector
-   - 1 team to low-ground areas
-   - Medical staging at Naval Hospital
-
-4. RISKS:
-   - Rapidly deteriorating conditions
-   - Power infrastructure failing
-   - Limited time windows for operations
-
-5. CONTINGENCIES:
-   - Helicopter evacuation if roads impassable
-   - Shelter-in-place for unreachable targets
-   - Post-storm rescue for blocked areas"""
+        "content": coordinator_reasoning
     })
-    await asyncio.sleep(1)
+    await wait(0.5)
     
     await manager.broadcast({
         "type": "coordinator_stats",
@@ -625,7 +610,7 @@ async def run_workflow_with_updates():
         }
     })
     
-    await asyncio.sleep(0.5)
+    await wait(0.2)
     
     await manager.broadcast({
         "type": "agent_complete",
@@ -633,7 +618,7 @@ async def run_workflow_with_updates():
         "message": "Removed 18,113 road segments (18%)",
     })
     
-    await asyncio.sleep(0.5)
+    await wait(0.2)
     
     # Step 6: Mission Solver - Show rescue targets and compute routes
     await manager.broadcast({
@@ -641,7 +626,7 @@ async def run_workflow_with_updates():
         "agent": "MissionSolver",
         "message": "Analyzing rescue mission targets...",
     })
-    await asyncio.sleep(0.8)
+    await wait(0.4)
     
     # Add rescue depot marker
     await manager.broadcast({
@@ -652,14 +637,14 @@ async def run_workflow_with_updates():
         "popup": f"🚒 {RESCUE_DEPOT['name']}<br>Rescue vehicles: 3",
         "icon": "depot",
     })
-    await asyncio.sleep(0.3)
+    await wait(0.1)
     
     # Assess each target based on damage zones
     reachable = []
     unreachable = []
     
     for target in RESCUE_TARGETS:
-        await asyncio.sleep(0.4)
+        await wait(0.1)
         
         # Determine if target is reachable based on zone
         if target["zone"] in ["extreme", "flooded"]:
@@ -699,7 +684,7 @@ async def run_workflow_with_updates():
             "unreachable_count": len(unreachable),
         })
     
-    await asyncio.sleep(0.5)
+    await wait(0.2)
     
     # Compute routes for reachable targets
     if reachable:
@@ -709,14 +694,14 @@ async def run_workflow_with_updates():
             "step": "routing",
             "message": f"Computing optimal routes for {len(reachable)} reachable targets...",
         })
-        await asyncio.sleep(1)
+        await wait(0.5)
         
         # Simulate route computation - create a simple greedy route
         route_coords = [[RESCUE_DEPOT["lat"], RESCUE_DEPOT["lon"]]]
         total_distance = 0
         
         for i, target in enumerate(reachable):
-            await asyncio.sleep(0.3)
+            await wait(0.1)
             
             # Add route segment
             prev = route_coords[-1]
@@ -746,7 +731,7 @@ async def run_workflow_with_updates():
             "targets_served": len(reachable),
         })
     
-    await asyncio.sleep(0.5)
+    await wait(0.3)
     
     # Mission summary
     await manager.broadcast({

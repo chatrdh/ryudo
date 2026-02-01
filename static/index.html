@@ -4,15 +4,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ryudo - Timeline Visualization</title>
+    <title>Ryudo - Intelligent Disaster Response</title>
 
-    <!-- Leaflet CSS -->
+    <!-- Leaflet & Extensions -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-ant-path@1.3.0/dist/leaflet-ant-path.js"></script>
 
-    <!-- Font Awesome -->
+    <!-- Fonts & Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
 
     <style>
+        :root {
+            --bg-dark: #09090b;
+            --bg-panel: rgba(24, 24, 27, 0.85);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --accent-primary: #6366f1;
+            /* Indigo */
+            --accent-secondary: #ec4899;
+            /* Pink */
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --font-main: 'Outfit', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+
+            --agent-flood: #3b82f6;
+            --agent-grid: #f59e0b;
+            --agent-route: #8b5cf6;
+            --agent-coord: #10b981;
+            --agent-mission: #ef4444;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -20,430 +45,388 @@
         }
 
         body {
-            font-family: 'Segoe UI', system-ui, sans-serif;
-            background: #0f0f1a;
-            color: #fff;
+            font-family: var(--font-main);
+            background: var(--bg-dark);
+            color: var(--text-primary);
             height: 100vh;
             overflow: hidden;
-        }
-
-        .container {
             display: grid;
-            grid-template-columns: 1fr 450px;
-            grid-template-rows: 1fr auto;
-            height: 100vh;
+            grid-template-columns: 1fr 400px;
         }
 
         /* Map Section */
-        .map-section {
-            position: relative;
-            grid-row: 1 / 3;
-        }
-
         #map {
             width: 100%;
             height: 100%;
+            z-index: 1;
         }
 
-        .map-title {
+        .map-overlay {
             position: absolute;
             top: 20px;
             left: 20px;
             z-index: 1000;
-            background: rgba(15, 15, 26, 0.95);
-            padding: 15px 20px;
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
+            background: var(--bg-panel);
+            backdrop-filter: blur(12px);
+            padding: 16px 24px;
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            pointer-events: none;
+            /* Let clicks pass through, enable on children if needed */
         }
 
-        .map-title h1 {
-            font-size: 1.3rem;
+        .timer-display {
+            position: absolute;
+            top: 20px;
+            right: 420px;
+            /* Offset from sidebar */
+            z-index: 1000;
+            background: var(--bg-panel);
+            backdrop-filter: blur(12px);
+            padding: 10px 20px;
+            border-radius: 50px;
+            border: 1px solid var(--border-color);
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            color: var(--accent-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            background: var(--bg-dark);
+            /* Solid bg for performance */
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            z-index: 2;
+        }
+
+        .header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border-color);
+            background: linear-gradient(180deg, rgba(30, 27, 75, 0.2) 0%, transparent 100%);
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #fff 0%, #cbd5e1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        /* Controls */
+        .controls {
+            padding: 20px 24px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 10px 16px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            cursor: pointer;
+            font-family: var(--font-main);
             font-weight: 600;
-            margin-bottom: 5px;
+            font-size: 0.9rem;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-1px);
+        }
+
+        .btn:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            border-color: transparent;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #4f46e5;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+
+        /* Speed Control */
+        .speed-control {
+            margin-left: auto;
             display: flex;
             align-items: center;
             gap: 10px;
         }
 
-        .map-title p {
-            font-size: 0.85rem;
-            color: #888;
-        }
-
-        /* Stage indicator on map */
-        .stage-indicator {
-            position: absolute;
-            top: 20px;
-            right: 470px;
-            z-index: 1000;
-            background: rgba(15, 15, 26, 0.95);
-            padding: 8px 16px;
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 6px 12px;
             border-radius: 20px;
-            border: 2px solid #667eea;
-            font-size: 0.9rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            border: 1px solid var(--border-color);
         }
 
-        .stage-indicator .stage-num {
-            background: #667eea;
-            color: white;
-            width: 24px;
-            height: 24px;
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 80px;
+            height: 4px;
+            background: #475569;
+            border-radius: 2px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
             border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.8rem;
-        }
-
-        /* Sidebar */
-        .sidebar {
-            background: linear-gradient(180deg, #1a1a2e 0%, #16162a 100%);
-            border-left: 1px solid rgba(255, 255, 255, 0.1);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .sidebar-header {
-            padding: 15px 20px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .sidebar-header h2 {
-            font-size: 1rem;
-            font-weight: 600;
-            margin-bottom: 12px;
-        }
-
-        /* Controls */
-        .controls {
-            display: flex;
-            gap: 8px;
-        }
-
-        .btn {
-            flex: 1;
-            padding: 10px 12px;
-            border: none;
-            border-radius: 8px;
-            font-size: 0.85rem;
-            font-weight: 500;
+            background: var(--text-primary);
             cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        .speed-val {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--accent-secondary);
+            min-width: 30px;
+        }
+
+        /* Tabs */
+        .tabs {
             display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
+            border-bottom: 1px solid var(--border-color);
+            margin: 0 24px;
+        }
+
+        .tab {
+            padding: 12px 16px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            border-bottom: 2px solid transparent;
             transition: all 0.2s;
         }
 
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+        .tab:hover {
+            color: var(--text-primary);
         }
 
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.3);
+        .tab.active {
+            color: var(--accent-primary);
+            border-bottom-color: var(--accent-primary);
         }
 
-        .btn-primary:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .btn-secondary {
-            background: rgba(255, 255, 255, 0.1);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .btn-step {
-            background: rgba(16, 185, 129, 0.2);
-            color: #10b981;
-            border: 1px solid #10b981;
-        }
-
-        /* Timeline */
-        .timeline-section {
-            padding: 12px 20px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .timeline-section h3 {
-            font-size: 0.75rem;
-            color: #888;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 10px;
-        }
-
-        .timeline {
-            display: flex;
-            gap: 4px;
-            align-items: center;
-        }
-
-        .timeline-stage {
+        /* Content Area */
+        .content-area {
             flex: 1;
-            height: 36px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.7rem;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s;
+            overflow-y: auto;
+            padding: 0;
             position: relative;
-            border: 2px solid transparent;
         }
 
-        .timeline-stage.active {
-            background: rgba(102, 126, 234, 0.3);
-            border-color: #667eea;
+        .tab-content {
+            display: none;
+            padding: 24px;
         }
 
-        .timeline-stage.complete {
-            background: rgba(16, 185, 129, 0.2);
-            border-color: #10b981;
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
         }
 
-        .timeline-stage:hover {
-            background: rgba(255, 255, 255, 0.1);
-        }
-
-        .timeline-stage .icon {
-            font-size: 1rem;
-            margin-bottom: 2px;
-        }
-
-        /* Reasoning Panel */
-        .reasoning-section {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .reasoning-header {
-            padding: 12px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .reasoning-header h3 {
-            font-size: 0.75rem;
-            color: #888;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .reasoning-toggle {
-            font-size: 0.75rem;
-            color: #667eea;
-            cursor: pointer;
-        }
-
-        .reasoning-content {
-            flex: 1;
-            overflow-y: auto;
-            padding: 12px 20px;
-            font-size: 0.8rem;
-            line-height: 1.5;
-            background: rgba(0, 0, 0, 0.2);
-        }
-
-        .reasoning-content .agent-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 8px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .reasoning-content .agent-icon {
-            width: 28px;
-            height: 28px;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .reasoning-content .agent-name {
-            font-weight: 600;
-            font-size: 0.9rem;
-        }
-
-        .reasoning-content .reasoning-text {
-            white-space: pre-wrap;
-            color: #ccc;
-        }
-
-        .reasoning-content .section-title {
-            color: #667eea;
-            font-weight: 600;
-            margin-top: 8px;
-        }
-
-        /* Activity Log */
-        .activity-section {
-            flex: 0 0 200px;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .activity-header {
-            padding: 12px 20px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .activity-header h3 {
-            font-size: 0.75rem;
-            color: #888;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .activity-log {
-            flex: 1;
-            overflow-y: auto;
-            padding: 8px 20px;
-        }
-
-        .log-entry {
-            padding: 6px 10px;
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 6px;
-            font-size: 0.75rem;
-            margin-bottom: 4px;
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
+        @keyframes fadeIn {
             from {
                 opacity: 0;
-                transform: translateX(20px);
+                transform: translateY(5px);
             }
 
             to {
                 opacity: 1;
-                transform: translateX(0);
+                transform: translateY(0);
             }
         }
 
-        .log-entry .agent {
-            font-weight: 600;
-            margin-right: 6px;
+        /* Timeline (Modern Vertical) */
+        .step-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
         }
 
-        .log-entry .agent.flood {
-            color: #3b82f6;
+        .step-item {
+            display: flex;
+            gap: 16px;
+            padding-bottom: 24px;
+            position: relative;
         }
 
-        .log-entry .agent.grid {
-            color: #f59e0b;
+        .step-item:last-child {
+            padding-bottom: 0;
         }
 
-        .log-entry .agent.temporal {
-            color: #8b5cf6;
+        .step-line {
+            position: absolute;
+            left: 14px;
+            top: 28px;
+            bottom: 0;
+            width: 2px;
+            background: var(--border-color);
         }
 
-        .log-entry .agent.coord {
+        .step-item:last-child .step-line {
+            display: none;
+        }
+
+        .step-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            z-index: 1;
+            transition: all 0.3s ease;
+        }
+
+        .step-item.active .step-icon {
+            border-color: var(--accent-primary);
+            background: rgba(99, 102, 241, 0.2);
+            color: var(--accent-primary);
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.3);
+        }
+
+        .step-item.completed .step-icon {
+            border-color: #10b981;
+            background: rgba(16, 185, 129, 0.2);
             color: #10b981;
         }
 
-        .log-entry .agent.mission {
-            color: #ef4444;
+        .step-info {
+            flex: 1;
         }
 
-        .log-entry .agent.system {
-            color: #888;
-        }
-
-        .log-entry .time {
-            float: right;
-            color: #555;
-            font-size: 0.7rem;
-        }
-
-        /* Connection Status */
-        .connection-status {
-            padding: 10px 20px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.75rem;
-            color: #888;
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #ef4444;
-        }
-
-        .status-dot.connected {
-            background: #10b981;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-
-            0%,
-            100% {
-                opacity: 1;
-            }
-
-            50% {
-                opacity: 0.5;
-            }
-        }
-
-        /* Legend on map */
-        .map-legend {
-            position: absolute;
-            bottom: 30px;
-            left: 20px;
-            z-index: 1000;
-            background: rgba(15, 15, 26, 0.95);
-            padding: 12px 15px;
-            border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            font-size: 0.75rem;
-        }
-
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
+        .step-title {
+            font-size: 0.95rem;
+            font-weight: 600;
             margin-bottom: 4px;
         }
 
-        .legend-color {
-            width: 14px;
-            height: 14px;
-            border-radius: 3px;
+        .step-desc {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        /* Logs & Reasoning */
+        .log-entry {
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+            border-left: 3px solid transparent;
+            font-family: var(--font-mono);
+            white-space: pre-wrap;
+        }
+
+        .log-entry.system {
+            border-color: #94a3b8;
+        }
+
+        .log-entry.flood {
+            border-color: var(--agent-flood);
+        }
+
+        .log-entry.grid {
+            border-color: var(--agent-grid);
+        }
+
+        .log-entry.temporal {
+            border-color: var(--agent-route);
+        }
+
+        .log-entry.coord {
+            border-color: var(--agent-coord);
+        }
+
+        .log-entry.mission {
+            border-color: var(--agent-mission);
+        }
+
+        .reasoning-block {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+            font-size: 0.9rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .reasoning-agent-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            color: #fff;
+        }
+
+        /* Marker Customization */
+        .custom-icon-marker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+            transition: transform 0.2s;
+        }
+
+        .custom-icon-marker:hover {
+            transform: scale(1.15) translateY(-2px);
+            z-index: 1000 !important;
         }
 
         /* Scrollbar */
         ::-webkit-scrollbar {
-            width: 5px;
+            width: 6px;
         }
 
         ::-webkit-scrollbar-track {
@@ -451,512 +434,382 @@
         }
 
         ::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.15);
             border-radius: 3px;
         }
 
-        /* Agent icons */
-        .flood-icon {
-            background: rgba(59, 130, 246, 0.2);
-            color: #3b82f6;
-        }
-
-        .grid-icon {
-            background: rgba(245, 158, 11, 0.2);
-            color: #f59e0b;
-        }
-
-        .temporal-icon {
-            background: rgba(139, 92, 246, 0.2);
-            color: #8b5cf6;
-        }
-
-        .coord-icon {
-            background: rgba(16, 185, 129, 0.2);
-            color: #10b981;
-        }
-
-        .mission-icon {
-            background: rgba(239, 68, 68, 0.2);
-            color: #ef4444;
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.25);
         }
     </style>
 </head>
 
 <body>
-    <div class="container">
-        <div class="map-section">
-            <div id="map"></div>
+    <!-- Map Container -->
+    <div id="map"></div>
 
-            <div class="map-title">
-                <h1>
-                    <i class="fas fa-brain"></i>
-                    Ryudo Agent System
-                </h1>
-                <p>Timeline Visualization</p>
-            </div>
+    <!-- Map Timer Overlay -->
+    <div class="timer-display" id="connectionStatus">
+        <i class="fas fa-satellite-dish"></i>
+        <span>Connecting...</span>
+    </div>
 
-            <div class="stage-indicator" id="stageIndicator">
-                <div class="stage-num" id="stageNum">0</div>
-                <span id="stageName">Ready</span>
-            </div>
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="header">
+            <h1>Ryudo</h1>
+            <p>Intelligent Disaster Response System</p>
+        </div>
 
-            <div class="map-legend">
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #FF0000;"></div>
-                    <span>Extreme Damage</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #FF8C00;"></div>
-                    <span>Severe Damage</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #FFD700;"></div>
-                    <span>Moderate Damage</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #0066FF;"></div>
-                    <span>Storm Surge</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #22c55e;"></div>
-                    <span>Rescue Route</span>
+        <div class="controls">
+            <button class="btn btn-primary" id="startBtn" onclick="startWorkflow()">
+                <i class="fas fa-play"></i> Run
+            </button>
+            <button class="btn" id="resetBtn" onclick="resetWorkflow()">
+                <i class="fas fa-redo"></i>
+            </button>
+
+            <div class="speed-control">
+                <div class="slider-container">
+                    <i class="fas fa-bolt" style="font-size: 10px; color: gold;"></i>
+                    <input type="range" id="speedIdx" min="0.5" max="5" step="0.5" value="1.0"
+                        oninput="updateSpeed(this.value)">
+                    <span class="speed-val" id="speedDisplay">1.0x</span>
                 </div>
             </div>
         </div>
 
-        <div class="sidebar">
-            <div class="sidebar-header">
-                <h2>🌀 Cyclone Hudhud Scenario</h2>
-                <div class="controls">
-                    <button class="btn btn-primary" id="startBtn" onclick="startWorkflow()">
-                        <i class="fas fa-play"></i> Start
-                    </button>
-                    <button class="btn btn-step" id="stepBtn" onclick="stepWorkflow()" disabled>
-                        <i class="fas fa-step-forward"></i> Step
-                    </button>
-                    <button class="btn btn-secondary" id="resetBtn" onclick="resetWorkflow()">
-                        <i class="fas fa-redo"></i>
-                    </button>
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('timeline')">Timeline</div>
+            <div class="tab" onclick="switchTab('logs')">Live Logs</div>
+            <div class="tab" onclick="switchTab('reasoning')">Reasoning</div>
+        </div>
+
+        <div class="content-area">
+            <!-- Timeline Tab -->
+            <div id="timeline" class="tab-content active">
+                <div class="step-list" id="stepList">
+                    <!-- Steps will be injected here -->
                 </div>
             </div>
 
-            <div class="timeline-section">
-                <h3>Operation Timeline</h3>
-                <div class="timeline">
-                    <div class="timeline-stage" id="stage-0" data-stage="0">
-                        <div>
-                            <div class="icon">📊</div>Init
-                        </div>
-                    </div>
-                    <div class="timeline-stage" id="stage-1" data-stage="1">
-                        <div>
-                            <div class="icon">🌊</div>Flood
-                        </div>
-                    </div>
-                    <div class="timeline-stage" id="stage-2" data-stage="2">
-                        <div>
-                            <div class="icon">⚡</div>Grid
-                        </div>
-                    </div>
-                    <div class="timeline-stage" id="stage-3" data-stage="3">
-                        <div>
-                            <div class="icon">⏱️</div>Time
-                        </div>
-                    </div>
-                    <div class="timeline-stage" id="stage-4" data-stage="4">
-                        <div>
-                            <div class="icon">📋</div>Solve
-                        </div>
-                    </div>
-                    <div class="timeline-stage" id="stage-5" data-stage="5">
-                        <div>
-                            <div class="icon">🚒</div>Route
-                        </div>
-                    </div>
+            <!-- Logs Tab -->
+            <div id="logs" class="tab-content">
+                <div id="logContainer">
+                    <div class="log-entry system">System ready. Waiting to start...</div>
                 </div>
             </div>
 
-            <div class="reasoning-section">
-                <div class="reasoning-header">
-                    <h3>🧠 LLM Reasoning</h3>
-                    <span class="reasoning-toggle" onclick="toggleReasoning()">Expand</span>
-                </div>
-                <div class="reasoning-content" id="reasoningContent">
-                    <div style="color: #666; text-align: center; padding: 20px;">
-                        Start workflow to see agent reasoning
+            <!-- Reasoning Tab -->
+            <div id="reasoning" class="tab-content">
+                <div id="reasoningContainer">
+                    <div style="color: var(--text-secondary); text-align: center; padding: 40px;">
+                        <i class="fas fa-brain" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
+                        Reasoning traces will appear here when agents are active.
                     </div>
                 </div>
-            </div>
-
-            <div class="activity-section">
-                <div class="activity-header">
-                    <h3>Activity Log</h3>
-                </div>
-                <div class="activity-log" id="activityLog">
-                    <div class="log-entry">
-                        <span class="agent system">System</span>
-                        Ready - Click Start or Step
-                    </div>
-                </div>
-            </div>
-
-            <div class="connection-status">
-                <div class="status-dot" id="statusDot"></div>
-                <span id="connectionText">Connecting...</span>
             </div>
         </div>
     </div>
 
-    <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
     <script>
-        // Initialize map
-        const map = L.map('map').setView([17.6868, 83.2185], 11);
-
-        // Dark tile layer
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '© CartoDB'
-        }).addTo(map);
-
-        // Layer groups for each stage
-        const layers = {
-            base: L.layerGroup().addTo(map),
-            flood: L.layerGroup().addTo(map),
-            grid: L.layerGroup().addTo(map),
-            temporal: L.layerGroup().addTo(map),
-            solve: L.layerGroup().addTo(map),
-            routes: L.layerGroup().addTo(map),
-        };
-
-        // State
-        let ws = null;
-        let currentStage = 0;
-        let stepMode = false;
-        let pendingMessages = [];
-        let reasoningData = {};
-
-        const STAGES = [
-            { id: 0, name: 'Initialization', agent: 'System' },
-            { id: 1, name: 'Environmental Analysis', agent: 'FloodSentinel' },
-            { id: 2, name: 'Infrastructure Check', agent: 'GridGuardian' },
-            { id: 3, name: 'Temporal Prediction', agent: 'RoutePilot' },
-            { id: 4, name: 'Mission Solving', agent: 'Coordinator' },
-            { id: 5, name: 'Route Planning', agent: 'MissionSolver' },
+        // --- Config ---
+        const STEPS = [
+            { id: 'init', label: 'Initialization', desc: 'Loading localized map data', icon: 'fa-map' },
+            { id: 'flood', label: 'Environmental', desc: 'FloodSentinel analyzing cyclone data', icon: 'fa-water' },
+            { id: 'infra', label: 'Infrastructure', desc: 'GridGuardian checking power failures', icon: 'fa-bolt' },
+            { id: 'temporal', label: 'Temporal', desc: 'RoutePilot predicting time constraints', icon: 'fa-clock' },
+            { id: 'coord', label: 'Coordinator', desc: 'Syncing constraints & refining graph', icon: 'fa-network-wired' },
+            { id: 'mission', label: 'Mission Solver', desc: 'Calculating optimal rescue routes', icon: 'fa-truck-medical' }
         ];
 
-        function connect() {
-            ws = new WebSocket(`ws://${window.location.host}/ws`);
+        // --- State ---
+        let map;
+        let ws;
+        let layers = {};
+        let activeStep = 0;
 
-            ws.onopen = () => {
-                document.getElementById('statusDot').classList.add('connected');
-                document.getElementById('connectionText').textContent = 'Connected';
-                addLog('system', 'Connected to Ryudo server');
-            };
+        // --- Init ---
+        function init() {
+            initMap();
+            renderTimeline();
+            connectWS();
+        }
 
-            ws.onclose = () => {
-                document.getElementById('statusDot').classList.remove('connected');
-                document.getElementById('connectionText').textContent = 'Disconnected';
-                setTimeout(connect, 2000);
-            };
+        function initMap() {
+            map = L.map('map', {
+                zoomControl: false,
+                attributionControl: false
+            }).setView([17.6868, 83.2185], 12);
 
-            ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                if (stepMode && data.type !== 'connected') {
-                    pendingMessages.push(data);
-                    document.getElementById('stepBtn').disabled = false;
-                } else {
-                    handleMessage(data);
-                }
+            // Dark Matter CartoDB
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 19
+            }).addTo(map);
+
+            // Custom Zoom Control
+            L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+            // Layers
+            layers = {
+                flood: L.layerGroup().addTo(map),
+                grid: L.layerGroup().addTo(map),
+                temporal: L.layerGroup().addTo(map),
+                mission: L.layerGroup().addTo(map),
+                routes: L.layerGroup().addTo(map)
             };
         }
 
-        function handleMessage(data) {
-            switch (data.type) {
-                case 'connected':
-                    addLog('system', data.message);
-                    break;
+        function renderTimeline() {
+            const container = document.getElementById('stepList');
+            container.innerHTML = STEPS.map((step, idx) => `
+                <div class="step-item" id="step-${idx}">
+                    <div class="step-line"></div>
+                    <div class="step-icon"><i class="fas ${step.icon}"></i></div>
+                    <div class="step-info">
+                        <div class="step-title">${step.label}</div>
+                        <div class="step-desc">${step.desc}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
 
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+            // Allow clicking the tab label itself
+            const tabBtn = Array.from(document.querySelectorAll('.tab')).find(t => t.innerText.toLowerCase().includes(tabId) || (tabId === 'logs' && t.innerText.includes('Logs')));
+            if (tabBtn) tabBtn.classList.add('active');
+
+            document.getElementById(tabId).classList.add('active');
+        }
+
+        // --- WebSocket ---
+        function connectWS() {
+            const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+            ws = new WebSocket(`${proto}://${window.location.host}/ws`);
+
+            const statusEl = document.getElementById('connectionStatus');
+
+            ws.onopen = () => {
+                statusEl.innerHTML = '<i class="fas fa-link" style="color:#10b981"></i> Connected';
+                statusEl.style.borderColor = '#10b981';
+                setTimeout(() => statusEl.style.opacity = 0.5, 2000);
+            };
+
+            ws.onclose = () => {
+                statusEl.innerHTML = '<i class="fas fa-unlink" style="color:#ef4444"></i> Disconnected';
+                statusEl.style.borderColor = '#ef4444';
+                statusEl.style.opacity = 1;
+                setTimeout(connectWS, 2000);
+            };
+
+            ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+        }
+
+        function handleMessage(msg) {
+            switch (msg.type) {
                 case 'workflow_start':
-                    setStage(0, 'Loading network...');
-                    addLog('system', data.message);
+                    resetUI();
+                    setStep(0);
+                    log('system', 'Workflow Started');
                     break;
-
                 case 'step':
-                case 'step_complete':
-                    addLog('system', data.message);
+                    // Optional: handle specific fine-grained steps
                     break;
-
                 case 'agent_start':
-                    const agentStage = STAGES.find(s => s.agent === data.agent);
-                    if (agentStage) {
-                        setStage(agentStage.id, `${data.agent} analyzing...`);
-                    }
-                    addLog(data.agent.toLowerCase(), data.message);
+                    const stepIdx = STEPS.findIndex(s => s.label.includes(msg.agent) || (msg.agent === 'FloodSentinel' && s.id === 'flood') || (msg.agent === 'GridGuardian' && s.id === 'infra') || (msg.agent === 'RoutePilot' && s.id === 'temporal') || (msg.agent === 'MissionSolver' && s.id === 'mission'));
+                    if (stepIdx !== -1) setStep(stepIdx);
+                    log(msg.agent, msg.message);
                     break;
-
                 case 'agent_complete':
-                    const completeStage = STAGES.find(s => s.agent === data.agent);
-                    if (completeStage) {
-                        document.getElementById(`stage-${completeStage.id}`).classList.add('complete');
-                    }
-                    addLog(data.agent.toLowerCase(), data.message);
+                    markStepComplete(activeStep);
                     break;
-
                 case 'reasoning':
-                    // Store and display LLM reasoning
-                    reasoningData[data.agent] = data.content;
-                    displayReasoning(data.agent, data.content);
-                    addLog(data.agent.toLowerCase(), '🧠 LLM reasoning received');
+                    addReasoning(msg.agent, msg.content);
+                    log(msg.agent, 'Reasoning generated');
+                    // Auto-switch to reasoning tab briefly? Maybe distracting.
                     break;
-
                 case 'constraint':
-                    handleConstraint(data.constraint);
+                    renderConstraint(msg.constraint);
                     break;
-
                 case 'marker':
-                    handleMarker(data);
-                    break;
-
-                case 'coordinator_stats':
-                    addLog('coord', `Removed ${data.stats.edges_removed.toLocaleString()} edges`);
-                    break;
-
-                case 'target_assessment':
-                    const status = data.status === 'reachable' ? '✅' : '❌';
-                    addLog('mission', `${status} ${data.target.name}`);
+                    renderMarker(msg);
                     break;
 
                 case 'route_segment':
-                    drawRouteSegment(data);
-                    addLog('mission', `Route → ${data.target.name}`);
+                    // We will collect segments or just draw lines?
+                    // Ideally we should wait for route_complete or draw progressively.
+                    // Let's implement progressive drawing in 'route_complete' or use segment data if we want animation.
                     break;
 
                 case 'route_complete':
-                    addLog('mission', `✅ Route: ${data.total_distance_km} km`);
-                    break;
-
-                case 'mission_summary':
-                    addLog('mission', `📊 ${data.reachable}/${data.total_targets} reachable`);
+                    renderRoute(msg.route, msg.total_distance_km);
+                    log('mission', `Route computed: ${msg.total_distance_km}km`);
                     break;
 
                 case 'workflow_complete':
-                    setStage(5, 'Complete');
-                    document.getElementById('startBtn').disabled = false;
-                    document.getElementById('stepBtn').disabled = true;
-                    addLog('system', `✅ ${data.message}`);
+                    setStep(STEPS.length - 1); // Ensure last step active
+                    markStepComplete(STEPS.length - 1);
+                    log('system', 'Workflow Complete');
                     break;
 
                 case 'reset':
                     resetUI();
+                    log('system', 'Reset complete');
                     break;
             }
         }
 
-        function handleConstraint(c) {
+        // --- Actions ---
+        function startWorkflow() {
+            ws.send(JSON.stringify({ action: 'start' }));
+            document.getElementById('startBtn').disabled = true;
+        }
+
+        function resetWorkflow() {
+            ws.send(JSON.stringify({ action: 'reset' }));
+            document.getElementById('startBtn').disabled = false;
+        }
+
+        function updateSpeed(val) {
+            document.getElementById('speedDisplay').innerText = val + 'x';
+            ws.send(JSON.stringify({ action: 'set_speed', speed: val }));
+        }
+
+        // --- UI Updates ---
+        function setStep(idx) {
+            if (activeStep < STEPS.length) {
+                // Mark previous as done if we are moving forward
+                for (let i = 0; i < idx; i++) markStepComplete(i);
+            }
+            activeStep = idx;
+            document.querySelectorAll('.step-item').forEach((el, i) => {
+                if (i === idx) {
+                    el.classList.add('active');
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                    el.classList.remove('active');
+                }
+            });
+        }
+
+        function markStepComplete(idx) {
+            const el = document.getElementById(`step-${idx}`);
+            if (el) el.classList.add('completed');
+        }
+
+        function log(agent, text) {
+            const div = document.createElement('div');
+            const agentClass = agent.toLowerCase().includes('flood') ? 'flood' :
+                agent.toLowerCase().includes('grid') ? 'grid' :
+                    agent.toLowerCase().includes('route') ? 'temporal' :
+                        agent.toLowerCase().includes('mission') ? 'mission' :
+                            agent.toLowerCase().includes('coord') ? 'coord' : 'system';
+
+            div.className = `log-entry ${agentClass}`;
+            div.innerText = `[${agent}] ${text}`;
+            const container = document.getElementById('logContainer');
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function addReasoning(agent, content) {
+            const container = document.getElementById('reasoningContainer');
+            // Clear placeholder if first
+            if (container.children.length === 1 && container.innerText.includes('Reasoning traces')) {
+                container.innerHTML = '';
+            }
+
+            const color = getComputedStyle(document.body).getPropertyValue(`--agent-${agent.toLowerCase().includes('flood') ? 'flood' : agent.toLowerCase().includes('grid') ? 'grid' : 'coord'}`) || '#fff';
+
+            const block = document.createElement('div');
+            block.className = 'reasoning-block';
+            block.innerHTML = `
+                <div class="reasoning-agent-header" style="color: ${color}">
+                    <i class="fas fa-robot"></i> ${agent}
+                </div>
+                <div style="white-space: pre-wrap; color: var(--text-secondary); line-height: 1.6;">${content}</div>
+            `;
+            container.appendChild(block);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function resetUI() {
+            Object.values(layers).forEach(l => l.clearLayers());
+            document.getElementById('logContainer').innerHTML = '';
+            renderTimeline(); // reset steps
+            activeStep = 0;
+            document.getElementById('reasoningContainer').innerHTML = '<div style="color: var(--text-secondary); text-align: center; padding: 40px;">Waiting for reasoning...</div>';
+        }
+
+        // --- Rendering Logic ---
+        function renderConstraint(c) {
             if (c.action === 'delete_zone' && c.geometry) {
-                const layer = L.geoJSON(c.geometry, {
-                    style: c.style
-                }).bindPopup(`<b>${c.agent}</b><br>${c.reason}`);
-                layers.flood.addLayer(layer);
-                addLog('flood', `Zone: ${c.zone_type}`);
-            } else if (c.action === 'disable_node') {
-                addLog('grid', `Offline: ${c.name}`);
-            } else if (c.action === 'set_ttl') {
-                addLog('temporal', `TTL: ${c.zone}`);
+                L.geoJSON(c.geometry, {
+                    style: c.style,
+                    onEachFeature: (f, l) => {
+                        l.bindPopup(`<b>${c.reason}</b>`);
+                    }
+                }).addTo(layers.flood);
             }
         }
 
-        function handleMarker(data) {
-            let icon;
-            const iconMap = {
-                'cyclone': '🌀',
-                'depot': '🚒',
-                'target_ok': '✓',
-                'target_blocked': '✗',
-                'offline': '🏥',
-                'active': '✅',
-                'power_off': '⚡'
-            };
+        function renderMarker(data) {
+            let iconHtml = '';
+            let bg = '#fff';
+            let color = '#000';
 
-            const emoji = iconMap[data.icon] || '📍';
-            const bgColor = data.icon === 'target_ok' ? '#22c55e' :
-                data.icon === 'target_blocked' ? '#ef4444' :
-                    data.icon === 'depot' ? '#10b981' : 'transparent';
+            if (data.icon === 'cyclone') { iconHtml = '🌀'; bg = 'transparent'; }
+            else if (data.icon === 'power_off') { iconHtml = '⚡'; bg = '#ef4444'; color = '#fff'; }
+            else if (data.icon === 'offline') { iconHtml = '🏥'; bg = '#52525b'; color = '#a1a1aa'; }
+            else if (data.icon === 'active') { iconHtml = '🏥'; bg = '#10b981'; color = '#fff'; }
+            else if (data.icon === 'depot') { iconHtml = '🚒'; bg = '#3b82f6'; color = '#fff'; }
+            else if (data.icon === 'target_ok') { iconHtml = '✓'; bg = '#22c55e'; color = '#fff'; }
+            else if (data.icon === 'target_blocked') { iconHtml = '✗'; bg = '#ef4444'; color = '#fff'; }
+            else { iconHtml = '📍'; }
 
-            icon = L.divIcon({
-                className: 'custom-icon',
-                html: `<div style="background:${bgColor};color:white;padding:4px 8px;border-radius:50%;font-size:14px;display:flex;align-items:center;justify-content:center;">${emoji}</div>`,
-                iconSize: [28, 28]
+            const icon = L.divIcon({
+                className: 'custom-div-icon',
+                html: `<div class="custom-icon-marker" style="width: 32px; height: 32px; background: ${bg}; color: ${color}; font-size: 16px;">${iconHtml}</div>`,
+                iconSize: [32, 32],
+                iconAnchor: [16, 16]
             });
 
-            const layerName = data.agent === 'FloodSentinel' ? 'flood' :
-                data.agent === 'GridGuardian' ? 'grid' :
-                    data.agent === 'MissionSolver' ? 'solve' : 'base';
+            const layerName = data.agent.toLowerCase().includes('flood') ? 'flood' :
+                data.agent.toLowerCase().includes('grid') ? 'grid' :
+                    data.agent.toLowerCase().includes('mission') ? 'mission' : 'routes';
 
-            L.marker(data.position, { icon })
+            L.marker(data.position, { icon: icon })
                 .bindPopup(data.popup)
                 .addTo(layers[layerName]);
         }
 
-        function drawRouteSegment(data) {
-            const segment = L.polyline(
-                [[data.from.lat, data.from.lon], [data.to.lat, data.to.lon]],
-                {
-                    color: '#22c55e',
-                    weight: 4,
-                    opacity: 0.9,
-                    dashArray: '10, 10'
-                }
-            ).bindPopup(`Route to ${data.target.name}<br>Distance: ${data.distance_km} km`);
-            layers.routes.addLayer(segment);
-        }
-
-        function setStage(stageId, description) {
-            currentStage = stageId;
-            document.getElementById('stageNum').textContent = stageId;
-            document.getElementById('stageName').textContent = description;
-
-            // Update timeline
-            for (let i = 0; i <= 5; i++) {
-                const el = document.getElementById(`stage-${i}`);
-                el.classList.remove('active');
-                if (i === stageId) {
-                    el.classList.add('active');
-                }
-            }
-        }
-
-        function displayReasoning(agent, content) {
-            const container = document.getElementById('reasoningContent');
-            const iconClass = agent === 'FloodSentinel' ? 'flood-icon' :
-                agent === 'GridGuardian' ? 'grid-icon' :
-                    agent === 'RoutePilot' ? 'temporal-icon' :
-                        agent === 'Coordinator' ? 'coord-icon' : 'mission-icon';
-
-            container.innerHTML = `
-                <div class="agent-header">
-                    <div class="agent-icon ${iconClass}"><i class="fas fa-brain"></i></div>
-                    <span class="agent-name">${agent}</span>
-                </div>
-                <div class="reasoning-text">${formatReasoning(content)}</div>
-            `;
-        }
-
-        function formatReasoning(text) {
-            // Highlight section headers
-            return text
-                .replace(/(\d+\.\s+[A-Z][A-Z\s]+:)/g, '<div class="section-title">$1</div>')
-                .replace(/\n/g, '<br>');
-        }
-
-        function addLog(agent, message) {
-            const log = document.getElementById('activityLog');
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-
-            const time = new Date().toLocaleTimeString('en-US', {
-                hour12: false,
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-
-            let agentClass = agent;
-            if (agent.includes('flood')) agentClass = 'flood';
-            if (agent.includes('grid')) agentClass = 'grid';
-            if (agent.includes('route') || agent.includes('temporal')) agentClass = 'temporal';
-            if (agent.includes('coord')) agentClass = 'coord';
-            if (agent.includes('mission')) agentClass = 'mission';
-
-            entry.innerHTML = `
-                <span class="time">${time}</span>
-                <span class="agent ${agentClass}">${agent.charAt(0).toUpperCase() + agent.slice(1)}</span>
-                ${message}
-            `;
-
-            log.insertBefore(entry, log.firstChild);
-
-            while (log.children.length > 30) {
-                log.removeChild(log.lastChild);
-            }
-        }
-
-        function startWorkflow() {
-            stepMode = false;
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ action: 'start' }));
-                document.getElementById('startBtn').disabled = true;
-            }
-        }
-
-        function stepWorkflow() {
-            if (pendingMessages.length > 0) {
-                const msg = pendingMessages.shift();
-                handleMessage(msg);
-                if (pendingMessages.length === 0) {
-                    document.getElementById('stepBtn').disabled = true;
-                }
-            }
-        }
-
-        function resetWorkflow() {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ action: 'reset' }));
-            }
-            resetUI();
-        }
-
-        function resetUI() {
-            currentStage = 0;
-            pendingMessages = [];
-            reasoningData = {};
-
-            document.getElementById('stageNum').textContent = '0';
-            document.getElementById('stageName').textContent = 'Ready';
-            document.getElementById('startBtn').disabled = false;
-            document.getElementById('stepBtn').disabled = true;
-
-            // Clear stages
-            for (let i = 0; i <= 5; i++) {
-                const el = document.getElementById(`stage-${i}`);
-                el.classList.remove('active', 'complete');
-            }
-
-            // Clear layers
-            Object.values(layers).forEach(layer => layer.clearLayers());
-
-            // Reset reasoning
-            document.getElementById('reasoningContent').innerHTML = `
-                <div style="color: #666; text-align: center; padding: 20px;">
-                    Start workflow to see agent reasoning
-                </div>
-            `;
-
-            // Clear log
-            document.getElementById('activityLog').innerHTML = `
-                <div class="log-entry">
-                    <span class="agent system">System</span>
-                    Reset - Ready to start
-                </div>
-            `;
-        }
-
-        function toggleReasoning() {
-            const content = document.getElementById('reasoningContent');
-            const toggle = document.querySelector('.reasoning-toggle');
-            if (content.style.maxHeight === 'none') {
-                content.style.maxHeight = '';
-                toggle.textContent = 'Expand';
+        function renderRoute(routeCoords, dist) {
+            // Using Leaflet-Ant-Path for animation
+            if (window.L.Polyline.AntPath) {
+                new L.Polyline.AntPath(routeCoords, {
+                    "delay": 400,
+                    "dashArray": [10, 20],
+                    "weight": 5,
+                    "color": "#6366f1", // Indigo
+                    "pulseColor": "#ffffff",
+                    "paused": false,
+                    "reverse": false,
+                    "hardwareAccelerated": true
+                }).addTo(layers.routes);
             } else {
-                content.style.maxHeight = 'none';
-                toggle.textContent = 'Collapse';
+                // Fallback
+                L.polyline(routeCoords, { color: '#6366f1', weight: 4, dashArray: '10, 10' }).addTo(layers.routes);
             }
+
+            // Fit bounds
+            map.fitBounds(routeCoords, { padding: [50, 50] });
         }
 
-        // Connect on load
-        connect();
+        // Start
+        init();
     </script>
 </body>
 

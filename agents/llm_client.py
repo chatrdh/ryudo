@@ -1,24 +1,40 @@
 """
-OpenRouter LLM Client
-======================
-Wrapper for OpenRouter API using the OpenAI SDK.
+LLM Client (Gemini + OpenRouter)
+=================================
+Wrapper for Google AI Gemini and OpenRouter APIs.
 
-OpenRouter provides access to 400+ LLM models through a single API.
-Set OPENROUTER_API_KEY environment variable before use.
+Primary: Gemini 2.5 Flash (thinking model) via Google AI Studio
+Fallback: OpenRouter API using OpenAI SDK
+
+Set GOOGLE_API_KEY for Gemini, OPENROUTER_API_KEY for fallback.
 """
 
 import os
 from typing import Dict, Any, List, Optional
+
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
+# Try to import google-genai
+try:
+    from google import genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    print("[LLM] Warning: google-genai not installed. Gemini unavailable.")
+
 from openai import OpenAI
 
 
-# OpenRouter base URL
+# OpenRouter base URL (fallback)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-# Default model for disaster response reasoning
-DEFAULT_MODEL = "anthropic/claude-3.5-sonnet"
+# Default models
+GEMINI_MODEL = "gemini-3-flash-preview"  # Gemini 3 thinking model
+OPENROUTER_MODEL = "anthropic/claude-3.5-sonnet"
 
-# Fallback models (in order of preference)
+# Fallback models for OpenRouter
 FALLBACK_MODELS = [
     "anthropic/claude-3-haiku",
     "openai/gpt-4o-mini",
@@ -27,16 +43,33 @@ FALLBACK_MODELS = [
 ]
 
 
-def get_client() -> Optional[OpenAI]:
+def get_gemini_client() -> Optional[genai.Client]:
     """
-    Get an OpenRouter client.
+    Get a Gemini client using Google AI Studio API key.
+    
+    Returns None if GOOGLE_API_KEY is not set or google-genai not installed.
+    """
+    if not GEMINI_AVAILABLE:
+        return None
+    
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    
+    if not api_key:
+        print("[LLM] Warning: GOOGLE_API_KEY not set. Gemini unavailable.")
+        return None
+    
+    return genai.Client(api_key=api_key)
+
+
+def get_openrouter_client() -> Optional[OpenAI]:
+    """
+    Get an OpenRouter client (fallback).
     
     Returns None if OPENROUTER_API_KEY is not set.
     """
     api_key = os.environ.get("OPENROUTER_API_KEY")
     
     if not api_key:
-        print("[LLM] Warning: OPENROUTER_API_KEY not set. Running without LLM.")
         return None
     
     return OpenAI(
@@ -49,13 +82,14 @@ def get_client() -> Optional[OpenAI]:
     )
 
 
+
 # ============================================================================
 # LLM Reasoning Logger
 # ============================================================================
 
 LLM_LOG_FILE = "output/llm_reasoning.md"
 
-def log_llm_reasoning(agent: str, prompt: str, response: str, model: str = DEFAULT_MODEL):
+def log_llm_reasoning(agent: str, prompt: str, response: str, model: str = GEMINI_MODEL):
     """
     Log all LLM reasoning to a markdown file.
     
@@ -96,62 +130,74 @@ def log_llm_reasoning(agent: str, prompt: str, response: str, model: str = DEFAU
     print(f"[LLM] Logged {agent} reasoning to {LLM_LOG_FILE}")
 
 
-def call_llm(
+def call_gemini(
     system_prompt: str,
     user_prompt: str,
-    model: str = DEFAULT_MODEL,
-    temperature: float = 0.3,
-    max_tokens: int = 1024,
-    json_response: bool = False,
+    model: str = GEMINI_MODEL,
 ) -> Optional[str]:
     """
-    Call an LLM via OpenRouter.
+    Call Gemini model via Google AI Studio.
     
-    Parameters
-    ----------
-    system_prompt : str
-        The system instructions for the model
-    user_prompt : str
-        The user's query/data
-    model : str
-        The model to use (e.g., "anthropic/claude-3.5-sonnet")
-    temperature : float
-        Sampling temperature (0.0-1.0)
-    max_tokens : int
-        Maximum response length
-    json_response : bool
-        If True, request JSON output format
-    
-    Returns
-    -------
-    str or None
-        The model's response text, or None if the call failed
+    Uses the thinking model which provides enhanced reasoning capabilities.
     """
-    client = get_client()
+    client = get_gemini_client()
     
     if client is None:
         return None
     
     try:
-        kwargs = {
-            "model": model,
-            "messages": [
+        # Combine system and user prompts for Gemini
+        full_prompt = f"{system_prompt}\n\n{user_prompt}"
+        
+        print(f"[LLM] Calling Gemini {model}...")
+        
+        response = client.models.generate_content(
+            model=model,
+            contents=full_prompt,
+        )
+        
+        # Extract text from response
+        if response and response.text:
+            print(f"[LLM] Gemini response received ({len(response.text)} chars)")
+            return response.text
+        
+        return None
+        
+    except Exception as e:
+        print(f"[LLM] Error calling Gemini {model}: {e}")
+        return None
+
+
+def call_openrouter(
+    system_prompt: str,
+    user_prompt: str,
+    model: str = OPENROUTER_MODEL,
+    temperature: float = 0.3,
+    max_tokens: int = 1024,
+) -> Optional[str]:
+    """
+    Call LLM via OpenRouter (fallback).
+    """
+    client = get_openrouter_client()
+    
+    if client is None:
+        return None
+    
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-        
-        if json_response:
-            kwargs["response_format"] = {"type": "json_object"}
-        
-        response = client.chat.completions.create(**kwargs)
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
         
         return response.choices[0].message.content
         
     except Exception as e:
-        print(f"[LLM] Error calling {model}: {e}")
+        print(f"[LLM] Error calling OpenRouter {model}: {e}")
         
         # Try fallback models
         for fallback in FALLBACK_MODELS:
@@ -159,13 +205,58 @@ def call_llm(
                 continue
             try:
                 print(f"[LLM] Trying fallback: {fallback}")
-                kwargs["model"] = fallback
-                response = client.chat.completions.create(**kwargs)
+                response = client.chat.completions.create(
+                    model=fallback,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
                 return response.choices[0].message.content
             except Exception:
                 continue
         
         return None
+
+
+def call_llm(
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float = 0.3,
+    max_tokens: int = 1024,
+    json_response: bool = False,
+) -> Optional[str]:
+    """
+    Call an LLM - tries Gemini first, falls back to OpenRouter.
+    
+    Parameters
+    ----------
+    system_prompt : str
+        The system instructions for the model
+    user_prompt : str
+        The user's query/data
+    temperature : float
+        Sampling temperature (only used for OpenRouter fallback)
+    max_tokens : int
+        Maximum response length (only used for OpenRouter fallback)
+    json_response : bool
+        If True, request JSON output format (OpenRouter only)
+    
+    Returns
+    -------
+    str or None
+        The model's response text, or None if all calls failed
+    """
+    # Try Gemini first (primary)
+    result = call_gemini(system_prompt, user_prompt)
+    if result:
+        return result
+    
+    # Fallback to OpenRouter
+    print("[LLM] Gemini unavailable, trying OpenRouter...")
+    return call_openrouter(system_prompt, user_prompt, temperature=temperature, max_tokens=max_tokens)
 
 
 # ============================================================================

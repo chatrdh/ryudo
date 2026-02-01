@@ -1,0 +1,17 @@
+.connection-status {
+    position: absolute;
+    top: 20px;
+    right: 420px;
+    z-index: 1000;
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    padding: 10px 20px;
+    border-radius: 50px;
+    border: 1px solid var(--border-color);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-primary);
+}

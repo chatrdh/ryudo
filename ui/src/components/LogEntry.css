@@ -1,0 +1,39 @@
+.log-entry {
+    padding: var(--space-md);
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    border-left: 3px solid var(--agent-system);
+    font-family: var(--font-mono);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.log-entry.flood {
+    border-color: var(--agent-flood);
+}
+
+.log-entry.grid {
+    border-color: var(--agent-grid);
+}
+
+.log-entry.temporal {
+    border-color: var(--agent-route);
+}
+
+.log-entry.coord {
+    border-color: var(--agent-coord);
+}
+
+.log-entry.mission {
+    border-color: var(--agent-mission);
+}
+
+.log-agent {
+    color: var(--text-secondary);
+    margin-right: var(--space-sm);
+}
+
+.log-text {
+    color: var(--text-primary);
+}

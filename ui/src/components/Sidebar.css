@@ -1,0 +1,208 @@
+.sidebar {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-dark);
+    border-left: 1px solid var(--border-color);
+    position: relative;
+    z-index: 2;
+    width: 400px;
+    height: 100%;
+}
+
+/* Header */
+.sidebar-header {
+    padding: var(--space-lg);
+    border-bottom: 1px solid var(--border-color);
+    background: linear-gradient(180deg, rgba(30, 27, 75, 0.2) 0%, transparent 100%);
+}
+
+.sidebar-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: var(--space-sm);
+    background: linear-gradient(135deg, #fff 0%, #cbd5e1 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.5px;
+}
+
+.sidebar-subtitle {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+/* Controls */
+.controls {
+    padding: 20px var(--space-lg);
+    display: flex;
+    gap: var(--space-md);
+    align-items: center;
+}
+
+.btn {
+    padding: 10px 16px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-family: var(--font-main);
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: var(--accent-primary);
+    border-color: transparent;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: var(--accent-primary-dark);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+/* Speed Control */
+.speed-control {
+    margin-left: auto;
+}
+
+.speed-slider-container {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    background: rgba(255, 255, 255, 0.05);
+    padding: 6px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+}
+
+.speed-icon {
+    color: gold;
+}
+
+.speed-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 80px;
+    height: 4px;
+    background: #475569;
+    border-radius: 2px;
+    outline: none;
+}
+
+.speed-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    cursor: pointer;
+    transition: transform var(--transition-fast);
+}
+
+.speed-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+}
+
+.speed-value {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--accent-secondary);
+    min-width: 30px;
+}
+
+/* Tabs */
+.tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border-color);
+    margin: 0 var(--space-lg);
+}
+
+.tab {
+    padding: 12px 16px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border: none;
+    background: transparent;
+    border-bottom: 2px solid transparent;
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.tab:hover {
+    color: var(--text-primary);
+}
+
+.tab.active {
+    color: var(--accent-primary);
+    border-bottom-color: var(--accent-primary);
+}
+
+/* Content Area */
+.content-area {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+.tab-content {
+    padding: var(--space-lg);
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+/* Log Container */
+.log-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    max-height: 100%;
+    overflow-y: auto;
+}
+
+.log-empty {
+    padding: var(--space-md);
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+/* Reasoning Empty */
+.reasoning-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px var(--space-lg);
+    color: var(--text-secondary);
+    text-align: center;
+    gap: var(--space-md);
+}
+
+.reasoning-empty p {
+    max-width: 250px;
+    line-height: 1.5;
+}
