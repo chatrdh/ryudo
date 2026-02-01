@@ -8,7 +8,12 @@
   <em>Treating the physical world as a programmable, non-stationary graph where AI Agents define the "Rules of Engagement" in real-time.</em>
 </p>
 
+<p align="center">
+  <video src="assets/hudhud.mp4" width="100%" autoplay loop muted playsinline></video>
+</p>
+
 ---
+
 
 ## What is Ryudo?
 
