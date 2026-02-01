@@ -548,6 +548,7 @@ def call_coordinator(
     constraints: List[Dict],
     targets: List[Dict],
     solution: Dict[str, Any],
+    vehicles: List[Dict] = None,
 ) -> str:
     """Formulate and solve CVRPTW optimization for mission planning."""
     import json
@@ -558,31 +559,48 @@ def call_coordinator(
         agent = c.get("agent", "Unknown")
         by_agent[agent] = by_agent.get(agent, 0) + 1
     
-    # Prepare targets with zone info
+    # Prepare full target data with enhanced fields
     target_summary = [{
         "id": t.get("id"),
         "name": t.get("name"),
         "zone": t.get("zone"),
+        "population": t.get("population", 4),
+        "type": t.get("type", "family"),
+        "ttl_hours": t.get("ttl_hours", 6.0),
+        "special_needs": t.get("special_needs", False),
         "lat": t.get("lat"),
         "lon": t.get("lon")
     } for t in targets]
+    
+    # Default vehicle fleet if not provided
+    if vehicles is None:
+        vehicles = [
+            {"id": "V1", "type": "Heavy Rescue", "capacity": 12, "speed_kmh": 40},
+            {"id": "V2", "type": "Ambulance", "capacity": 4, "speed_kmh": 60, "medical": True},
+            {"id": "V3", "type": "Troop Carrier", "capacity": 20, "speed_kmh": 35},
+            {"id": "V4", "type": "Light Rescue", "capacity": 6, "speed_kmh": 50},
+        ]
+    
+    # Calculate total population
+    total_pop = sum(t.get("population", 4) for t in targets)
+    special_needs_count = sum(1 for t in targets if t.get("special_needs"))
     
     prompt = f"""Formulate and solve the rescue mission as a CVRPTW optimization problem:
 
 ## PROBLEM INSTANCE
 
-**Available Resources:**
-- Vehicles: 3 rescue units
-- Capacity: 8 persons per vehicle
-- Depot: Emergency Response Center (17.6868, 83.2185)
+**Depot:** Emergency Response Center (17.6868, 83.2185)
 
-**Rescue Targets:**
+**Vehicle Fleet (Heterogeneous):**
+{json.dumps(vehicles, indent=2)}
+
+**Rescue Targets ({len(targets)} locations, {total_pop} persons, {special_needs_count} with special needs):**
 {json.dumps(target_summary, indent=2)}
 
 **Active Constraints by Agent:**
 {json.dumps(by_agent, indent=2)}
 
-**Preliminary Solution:**
+**Preliminary Routing Solution:**
 - Reachable: {solution.get('targets_reached', 0)} targets
 - Unreachable: {solution.get('unreachable', [])}
 - Estimated distance: {solution.get('total_distance', 0):.0f} meters
@@ -592,43 +610,70 @@ def call_coordinator(
 ## 1. FORMAL PROBLEM STATEMENT
 
 **Decision Variables:**
-Define x_ij^k, y_i^k, t_i^k for this instance.
+- x_ij^k ∈ {{0,1}}: Vehicle k travels arc (i,j)
+- y_i^k ∈ {{0,1}}: Vehicle k serves target i
+- t_i^k: Arrival time at target i for vehicle k
+- q_i^k: Load of vehicle k after visiting i
 
 **Objective Function:**
-MAXIMIZE: Σ(urgency_i × rescued_i) - λ × travel_time
+MAXIMIZE: Z = Σ(urgency_i × population_i × y_i) - λ₁×distance - λ₂×TTL_violations
 
-Assign urgency weights based on zone classification.
+Urgency weights: extreme=10, severe=7, moderate=4, safe=2
+Special needs multiplier: 1.5x for medical priority
 
 **Constraints:**
-List the binding constraints from specialist agents.
+1. Vehicle capacity: Σ(population_i × y_i^k) ≤ capacity_k for each k
+2. Time windows: t_i^k ≤ TTL_i for all visited targets
+3. Medical matching: special_needs targets prefer ambulance (V2)
+4. Zone accessibility: extreme zone targets may be unreachable
 
 ## 2. SOLUTION CONSTRUCTION
 
-**Step 1 - Greedy Initialization:**
-Sort targets by urgency/distance ratio and assign.
+**Step 1 - Target Prioritization:**
+Compute Priority Index = (urgency × population × special_needs_mult) / distance
+Rank all targets.
 
-**Step 2 - Route Formation:**
-Show vehicle assignments and route sequences.
+**Step 2 - Vehicle-Target Assignment:**
+Assign V2 (Ambulance) to special_needs targets first.
+Assign remaining by capacity fit.
 
-**Step 3 - Feasibility Check:**
-Verify TTL constraints are satisfied.
+**Step 3 - Route Sequencing:**
+Form TSP tours for each vehicle minimizing intra-route distance.
 
-## 3. SOLUTION ANALYSIS
+**Step 4 - Feasibility Verification:**
+Check capacity and TTL constraints for each route.
 
+## 3. SOLUTION OUTPUT
+
+| Vehicle | Route Sequence | Population Carried | Total Distance | TTL Status |
+|---------|----------------|-------------------|----------------|------------|
+| V1 | ... | ... | ... | ... |
+| V2 | ... | ... | ... | ... |
+| V3 | ... | ... | ... | ... |
+| V4 | ... | ... | ... | ... |
+
+**Summary Metrics:**
 | Metric | Value |
 |--------|-------|
-| Total rescued | ... |
+| Total rescued | ... persons |
 | Coverage % | ... |
-| Objective value | ... |
-| Slack on TTL constraints | ... |
+| Objective Z | ... |
+| Capacity utilization | ... |
+| TTL margin (min) | ... |
 
 ## 4. RISK ASSESSMENT
 
-Identify routes with tight TTL margins.
+Identify:
+- Routes with TTL margin < 30 minutes
+- Vehicles at >90% capacity
+- Unreachable high-priority targets
 
 ## 5. CONTINGENCY PLAN
 
-If Route X fails, describe re-routing strategy."""
+If primary routes fail:
+- Backup vehicle assignments
+- Aerial extraction requests for extreme zone
+- Shelter-in-place orders for unreachable safe-zone targets"""
     
     result = call_llm(
         system_prompt=COORDINATOR_SYSTEM_PROMPT,
@@ -640,3 +685,4 @@ If Route X fails, describe re-routing strategy."""
         log_llm_reasoning("Coordinator", prompt, result)
     
     return result or "[LLM unavailable - using automated planning]"
+

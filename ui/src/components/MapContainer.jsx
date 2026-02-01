@@ -1,5 +1,5 @@
-import { useEffect, useRef, useMemo } from 'react';
-import { MapContainer as LeafletMap, TileLayer, ZoomControl, useMap } from 'react-leaflet';
+import { useEffect, useRef, useMemo, useState } from 'react';
+import { MapContainer as LeafletMap, TileLayer, ZoomControl, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-ant-path';
@@ -39,13 +39,30 @@ function createMarkerIcon(iconType) {
     });
 }
 
-function MapContent({ constraints, markers, routes, onMapReady }) {
+// Layer control component
+function LayerControlPanel({ layers, onToggle }) {
+    return (
+        <div className="layer-control-panel">
+            <div className="layer-control-header">Layers</div>
+            {Object.entries(layers).map(([name, { visible, label }]) => (
+                <label key={name} className="layer-control-item">
+                    <input
+                        type="checkbox"
+                        checked={visible}
+                        onChange={() => onToggle(name)}
+                    />
+                    <span>{label}</span>
+                </label>
+            ))}
+        </div>
+    );
+}
+
+function MapContent({ constraints, markers, routes, onMapReady, layerVisibility }) {
     const map = useMap();
     const layersRef = useRef({
-        flood: L.layerGroup(),
-        grid: L.layerGroup(),
-        temporal: L.layerGroup(),
-        mission: L.layerGroup(),
+        zones: L.layerGroup(),
+        markers: L.layerGroup(),
         routes: L.layerGroup(),
     });
     const antPathsRef = useRef([]);
@@ -65,36 +82,66 @@ function MapContent({ constraints, markers, routes, onMapReady }) {
         };
     }, [map, onMapReady]);
 
-    // Handle constraints (flood zones, etc.)
+    // Toggle layer visibility
     useEffect(() => {
+        Object.entries(layerVisibility).forEach(([name, { visible }]) => {
+            const layer = layersRef.current[name];
+            if (layer) {
+                if (visible && !map.hasLayer(layer)) {
+                    layer.addTo(map);
+                } else if (!visible && map.hasLayer(layer)) {
+                    map.removeLayer(layer);
+                }
+            }
+        });
+        // Handle routes layer separately (antPaths)
+        if (layerVisibility.routes) {
+            antPathsRef.current.forEach(path => {
+                if (layerVisibility.routes.visible && !map.hasLayer(path)) {
+                    path.addTo(map);
+                } else if (!layerVisibility.routes.visible && map.hasLayer(path)) {
+                    map.removeLayer(path);
+                }
+            });
+        }
+    }, [layerVisibility, map]);
+
+    // Handle constraints (flood zones, etc.) - with reduced opacity
+    useEffect(() => {
+        layersRef.current.zones.clearLayers();
+
         constraints.forEach(c => {
             if (c.action === 'delete_zone' && c.geometry) {
+                // Use server style but ensure low opacity and dashed stroke for clarity
+                const defaultStyle = {
+                    color: c.style?.color || '#ef4444',
+                    fillColor: c.style?.fillColor || '#ef4444',
+                    weight: 2,
+                    fillOpacity: 0.12,  // Very low fill opacity
+                    opacity: 0.7,       // Border opacity
+                    dashArray: '8, 4',  // Dashed border for clarity
+                };
+
                 L.geoJSON(c.geometry, {
-                    style: c.style || {
-                        color: '#ef4444',
-                        weight: 2,
-                        fillOpacity: 0.3,
-                    },
+                    style: defaultStyle,
                     onEachFeature: (feature, layer) => {
                         layer.bindPopup(`<b>${c.reason || 'Restricted Zone'}</b>`);
                     },
-                }).addTo(layersRef.current.flood);
+                }).addTo(layersRef.current.zones);
             }
         });
     }, [constraints]);
 
     // Handle markers and fit bounds
     useEffect(() => {
+        layersRef.current.markers.clearLayers();
+        allMarkersRef.current = [];
+
         markers.forEach(m => {
             const icon = createMarkerIcon(m.icon);
-            const layerName = m.agent?.toLowerCase().includes('flood') ? 'flood'
-                : m.agent?.toLowerCase().includes('grid') ? 'grid'
-                    : m.agent?.toLowerCase().includes('mission') ? 'mission'
-                        : 'routes';
-
             L.marker(m.position, { icon })
                 .bindPopup(m.popup || '')
-                .addTo(layersRef.current[layerName]);
+                .addTo(layersRef.current.markers);
 
             allMarkersRef.current.push(m.position);
         });
@@ -117,12 +164,14 @@ function MapContent({ constraints, markers, routes, onMapReady }) {
 
     // Handle routes with AntPath animation
     useEffect(() => {
+        // Clear previous ant paths
+        antPathsRef.current.forEach(path => {
+            if (map.hasLayer(path)) map.removeLayer(path);
+        });
+        antPathsRef.current = [];
+
         routes.forEach(route => {
             if (route.coords?.length > 0) {
-                // Clear previous ant paths
-                antPathsRef.current.forEach(path => map.removeLayer(path));
-                antPathsRef.current = [];
-
                 const antPath = L.polyline.antPath(route.coords, {
                     delay: 400,
                     dashArray: [10, 20],
@@ -149,10 +198,23 @@ function MapContent({ constraints, markers, routes, onMapReady }) {
 }
 
 export function MapView({ constraints = [], markers = [], routes = [], onMapReady }) {
+    const [layerVisibility, setLayerVisibility] = useState({
+        zones: { visible: true, label: '🔴 Damage Zones' },
+        markers: { visible: true, label: '📍 Markers' },
+        routes: { visible: true, label: '🛣️ Routes' },
+    });
+
+    const toggleLayer = (name) => {
+        setLayerVisibility(prev => ({
+            ...prev,
+            [name]: { ...prev[name], visible: !prev[name].visible }
+        }));
+    };
+
     const mapOptions = useMemo(() => ({
         center: DEFAULT_CENTER,
         zoom: DEFAULT_ZOOM,
-        zoomControl: false,  // We'll add our own positioned control
+        zoomControl: false,
         attributionControl: false,
         scrollWheelZoom: true,
         doubleClickZoom: true,
@@ -161,6 +223,7 @@ export function MapView({ constraints = [], markers = [], routes = [], onMapRead
 
     return (
         <div className="map-wrapper">
+            <LayerControlPanel layers={layerVisibility} onToggle={toggleLayer} />
             <LeafletMap {...mapOptions} className="map-container">
                 <TileLayer
                     url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
@@ -172,9 +235,11 @@ export function MapView({ constraints = [], markers = [], routes = [], onMapRead
                     markers={markers}
                     routes={routes}
                     onMapReady={onMapReady}
+                    layerVisibility={layerVisibility}
                 />
             </LeafletMap>
         </div>
     );
 }
+
 

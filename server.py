@@ -121,19 +121,42 @@ CYCLONE_HUDHUD_CONFIG = {
     "surge_inland_distance_km": 2,
 }
 
-# Rescue mission configuration
+# Rescue mission configuration - diverse test data for CVRPTW optimization
 RESCUE_TARGETS = [
-    {"id": "T1", "lat": 17.7200, "lon": 83.3200, "name": "Family A", "status": "pending", "zone": "extreme"},
-    {"id": "T2", "lat": 17.7050, "lon": 83.2800, "name": "Family B", "status": "pending", "zone": "severe"},
-    {"id": "T3", "lat": 17.6900, "lon": 83.2500, "name": "Family C", "status": "pending", "zone": "moderate"},
-    {"id": "T4", "lat": 17.7300, "lon": 83.2600, "name": "Family D", "status": "pending", "zone": "severe"},
-    {"id": "T5", "lat": 17.6750, "lon": 83.2100, "name": "Family E", "status": "pending", "zone": "safe"},
-    {"id": "T6", "lat": 17.6600, "lon": 83.2300, "name": "Family F", "status": "pending", "zone": "safe"},
-    {"id": "T7", "lat": 17.7100, "lon": 83.3100, "name": "Family G", "status": "pending", "zone": "extreme"},
-    {"id": "T8", "lat": 17.6800, "lon": 83.2400, "name": "Family H", "status": "pending", "zone": "moderate"},
+    # Extreme zone - highest urgency, time-critical
+    {"id": "T1", "lat": 17.7200, "lon": 83.3200, "name": "Coastal Family A", "status": "pending", "zone": "extreme", "population": 5, "type": "family", "ttl_hours": 0.5, "special_needs": True},
+    {"id": "T2", "lat": 17.7100, "lon": 83.3100, "name": "Beach Resort Workers", "status": "pending", "zone": "extreme", "population": 12, "type": "group", "ttl_hours": 0.5, "special_needs": False},
+    {"id": "T3", "lat": 17.7150, "lon": 83.3050, "name": "Fishing Village Elders", "status": "pending", "zone": "extreme", "population": 8, "type": "group", "ttl_hours": 1.0, "special_needs": True},
+    
+    # Severe zone - high urgency
+    {"id": "T4", "lat": 17.7050, "lon": 83.2800, "name": "Primary School", "status": "pending", "zone": "severe", "population": 25, "type": "school", "ttl_hours": 2.0, "special_needs": False},
+    {"id": "T5", "lat": 17.7300, "lon": 83.2600, "name": "Family D - Near Substation", "status": "pending", "zone": "severe", "population": 4, "type": "family", "ttl_hours": 1.5, "special_needs": False},
+    {"id": "T6", "lat": 17.6950, "lon": 83.2900, "name": "Clinic Patients", "status": "pending", "zone": "severe", "population": 15, "type": "medical", "ttl_hours": 1.0, "special_needs": True},
+    {"id": "T7", "lat": 17.7000, "lon": 83.2700, "name": "Temple Shelter Group", "status": "pending", "zone": "severe", "population": 30, "type": "shelter", "ttl_hours": 3.0, "special_needs": False},
+    
+    # Moderate zone - medium urgency
+    {"id": "T8", "lat": 17.6900, "lon": 83.2500, "name": "Family C - River Bank", "status": "pending", "zone": "moderate", "population": 6, "type": "family", "ttl_hours": 4.0, "special_needs": False},
+    {"id": "T9", "lat": 17.6800, "lon": 83.2400, "name": "Community Center", "status": "pending", "zone": "moderate", "population": 45, "type": "shelter", "ttl_hours": 6.0, "special_needs": False},
+    {"id": "T10", "lat": 17.6850, "lon": 83.2550, "name": "Apartment Block B", "status": "pending", "zone": "moderate", "population": 20, "type": "residential", "ttl_hours": 5.0, "special_needs": True},
+    {"id": "T11", "lat": 17.6700, "lon": 83.2600, "name": "Warehouse Workers", "status": "pending", "zone": "moderate", "population": 8, "type": "industrial", "ttl_hours": 4.0, "special_needs": False},
+    
+    # Safe zone - lower urgency, staging points
+    {"id": "T12", "lat": 17.6750, "lon": 83.2100, "name": "Family E - Hilltop", "status": "pending", "zone": "safe", "population": 3, "type": "family", "ttl_hours": 12.0, "special_needs": False},
+    {"id": "T13", "lat": 17.6600, "lon": 83.2300, "name": "School Gymnasium", "status": "pending", "zone": "safe", "population": 60, "type": "shelter", "ttl_hours": 24.0, "special_needs": False},
+    {"id": "T14", "lat": 17.6550, "lon": 83.2000, "name": "Rural Hamlet", "status": "pending", "zone": "safe", "population": 15, "type": "village", "ttl_hours": 12.0, "special_needs": False},
+    {"id": "T15", "lat": 17.6650, "lon": 83.1900, "name": "Factory Dormitory", "status": "pending", "zone": "safe", "population": 35, "type": "residential", "ttl_hours": 8.0, "special_needs": False},
 ]
 
 RESCUE_DEPOT = {"lat": 17.6868, "lon": 83.2185, "name": "Emergency Response Center"}
+
+# Vehicle fleet configuration
+RESCUE_VEHICLES = [
+    {"id": "V1", "type": "Heavy Rescue", "capacity": 12, "speed_kmh": 40, "fuel_range_km": 150},
+    {"id": "V2", "type": "Ambulance", "capacity": 4, "speed_kmh": 60, "fuel_range_km": 200, "medical": True},
+    {"id": "V3", "type": "Troop Carrier", "capacity": 20, "speed_kmh": 35, "fuel_range_km": 120},
+    {"id": "V4", "type": "Light Rescue", "capacity": 6, "speed_kmh": 50, "fuel_range_km": 180},
+]
+
 
 
 # ============================================================================
@@ -591,7 +614,8 @@ async def run_workflow_with_updates():
     coordinator_reasoning = call_coordinator(
         workflow_state["constraints"],
         RESCUE_TARGETS,
-        solution_summary
+        solution_summary,
+        vehicles=RESCUE_VEHICLES
     )
     await manager.broadcast({
         "type": "reasoning",
