@@ -1,9 +1,21 @@
-import { useEffect, useRef, useMemo, useState } from 'react';
+import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import { MapContainer as LeafletMap, TileLayer, ZoomControl, LayersControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-ant-path';
 import './MapContainer.css';
+
+// Debounce utility for batching updates
+function useDebounce(value, delay) {
+    const [debouncedValue, setDebouncedValue] = useState(value);
+
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedValue(value), delay);
+        return () => clearTimeout(timer);
+    }, [value, delay]);
+
+    return debouncedValue;
+}
 
 // Fix default marker icon paths for Leaflet in bundlers
 delete L.Icon.Default.prototype._getIconUrl;
@@ -198,18 +210,22 @@ function MapContent({ constraints, markers, routes, onMapReady, layerVisibility 
 }
 
 export function MapView({ constraints = [], markers = [], routes = [], onMapReady }) {
+    // Debounce rapid updates to prevent map stuttering
+    const debouncedConstraints = useDebounce(constraints, 100);
+    const debouncedMarkers = useDebounce(markers, 100);
+
     const [layerVisibility, setLayerVisibility] = useState({
         zones: { visible: true, label: '🔴 Damage Zones' },
         markers: { visible: true, label: '📍 Markers' },
         routes: { visible: true, label: '🛣️ Routes' },
     });
 
-    const toggleLayer = (name) => {
+    const toggleLayer = useCallback((name) => {
         setLayerVisibility(prev => ({
             ...prev,
             [name]: { ...prev[name], visible: !prev[name].visible }
         }));
-    };
+    }, []);
 
     const mapOptions = useMemo(() => ({
         center: DEFAULT_CENTER,
@@ -219,6 +235,8 @@ export function MapView({ constraints = [], markers = [], routes = [], onMapRead
         scrollWheelZoom: true,
         doubleClickZoom: true,
         dragging: true,
+        // Performance optimizations
+        preferCanvas: true,
     }), []);
 
     return (
@@ -231,8 +249,8 @@ export function MapView({ constraints = [], markers = [], routes = [], onMapRead
                 />
                 <ZoomControl position="bottomright" />
                 <MapContent
-                    constraints={constraints}
-                    markers={markers}
+                    constraints={debouncedConstraints}
+                    markers={debouncedMarkers}
                     routes={routes}
                     onMapReady={onMapReady}
                     layerVisibility={layerVisibility}

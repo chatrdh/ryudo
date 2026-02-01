@@ -4,6 +4,9 @@
     padding: var(--space-md);
     margin-bottom: var(--space-md);
     border: 1px solid var(--border-color);
+    max-height: 500px;
+    overflow-y: auto;
+    scroll-behavior: smooth;
 }
 
 .reasoning-header {
@@ -14,11 +17,130 @@
     padding-bottom: var(--space-sm);
     border-bottom: 1px solid var(--border-color);
     font-weight: 600;
+    position: sticky;
+    top: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(4px);
+    margin: calc(-1 * var(--space-md));
+    margin-bottom: var(--space-md);
+    padding: var(--space-md);
+    z-index: 1;
 }
 
 .reasoning-content {
-    white-space: pre-wrap;
     color: var(--text-secondary);
-    line-height: 1.6;
+    line-height: 1.7;
     font-size: 0.9rem;
+}
+
+/* Markdown Styling */
+.reasoning-content h1,
+.reasoning-content h2,
+.reasoning-content h3 {
+    color: var(--text-primary);
+    margin-top: var(--space-md);
+    margin-bottom: var(--space-sm);
+    font-weight: 600;
+}
+
+.reasoning-content h1 {
+    font-size: 1.1rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: var(--space-xs);
+}
+
+.reasoning-content h2 {
+    font-size: 1rem;
+    color: var(--accent-tertiary);
+}
+
+.reasoning-content h3 {
+    font-size: 0.95rem;
+    color: var(--accent-primary);
+}
+
+.reasoning-content p {
+    margin-bottom: var(--space-sm);
+}
+
+.reasoning-content ul,
+.reasoning-content ol {
+    margin-left: var(--space-md);
+    margin-bottom: var(--space-sm);
+}
+
+.reasoning-content li {
+    margin-bottom: var(--space-xs);
+}
+
+.reasoning-content code {
+    background: rgba(99, 102, 241, 0.15);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    color: var(--accent-primary);
+}
+
+.reasoning-content pre {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: var(--space-sm);
+    overflow-x: auto;
+    margin: var(--space-sm) 0;
+}
+
+.reasoning-content pre code {
+    background: transparent;
+    padding: 0;
+    color: var(--text-secondary);
+}
+
+.reasoning-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: var(--space-sm) 0;
+    font-size: 0.85rem;
+}
+
+.reasoning-content th,
+.reasoning-content td {
+    border: 1px solid var(--border-color);
+    padding: var(--space-xs) var(--space-sm);
+    text-align: left;
+}
+
+.reasoning-content th {
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--accent-primary);
+    font-weight: 600;
+}
+
+.reasoning-content tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.reasoning-content strong {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.reasoning-content em {
+    color: var(--accent-secondary);
+    font-style: italic;
+}
+
+.reasoning-content blockquote {
+    border-left: 3px solid var(--accent-primary);
+    margin: var(--space-sm) 0;
+    padding-left: var(--space-md);
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.reasoning-content hr {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: var(--space-md) 0;
 }

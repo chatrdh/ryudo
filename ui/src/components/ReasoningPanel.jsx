@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { Bot } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import './ReasoningPanel.css';
 
 function getAgentColor(agent) {
@@ -12,8 +13,29 @@ function getAgentColor(agent) {
     return 'var(--text-primary)';
 }
 
+// Clean up LaTeX for display (convert to readable format)
+function cleanContent(content) {
+    if (!content) return '';
+    return content
+        // Convert LaTeX fractions to readable format
+        .replace(/\$([^$]+)\$/g, (match, inner) => {
+            // Simple cleanup - remove backslashes and make readable
+            return inner
+                .replace(/\\text\{([^}]+)\}/g, '$1')
+                .replace(/\\times/g, '×')
+                .replace(/\\sqrt\{([^}]+)\}/g, '√($1)')
+                .replace(/\\exp\(([^)]+)\)/g, 'exp($1)')
+                .replace(/\^(\d+)/g, '^$1')
+                .replace(/\_\{([^}]+)\}/g, '[$1]')
+                .replace(/\\/g, '');
+        })
+        // Clean up double dollar LaTeX blocks
+        .replace(/\$\$([^$]+)\$\$/g, (match, inner) => `\n${inner.replace(/\\/g, '')}\n`);
+}
+
 export function ReasoningPanel({ agent, content }) {
     const color = getAgentColor(agent);
+    const cleanedContent = cleanContent(content);
 
     return (
         <motion.div
@@ -27,8 +49,9 @@ export function ReasoningPanel({ agent, content }) {
                 <span>{agent}</span>
             </div>
             <div className="reasoning-content">
-                {content}
+                <ReactMarkdown>{cleanedContent}</ReactMarkdown>
             </div>
         </motion.div>
     );
 }
+
