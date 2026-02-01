@@ -260,75 +260,176 @@ def call_llm(
 
 
 # ============================================================================
-# Agent-specific prompts
+# Agent-specific prompts - Advanced Scientific Reasoning
 # ============================================================================
 
-ENVIRONMENTAL_SYSTEM_PROMPT = """You are FloodSentinel, an AI agent specialized in environmental hazard assessment for disaster response.
+ENVIRONMENTAL_SYSTEM_PROMPT = """You are FloodSentinel, an AI agent specialized in **meteorological hazard modeling** for disaster response.
 
-Your role is to analyze cyclone/storm data and determine which areas are dangerous for rescue operations.
+## Scientific Framework
+You apply the **Holland Wind Profile Model** for tropical cyclone analysis:
 
-Given meteorological data, you must:
-1. Assess wind damage zones based on distance from cyclone eye
-2. Identify flood-prone areas based on topology and storm surge
-3. Classify zones as: extreme (impassable), severe (very dangerous), or moderate (proceed with caution)
-4. Explain your reasoning for each assessment
+**Wind Speed Decay**: V(r) = V_max × √[(R_max/r)^B × exp(1 - (R_max/r)^B)]
+- V_max: Maximum sustained wind speed at eyewall
+- R_max: Radius of maximum winds
+- B: Holland B parameter ≈ 1.5-2.5 (shape factor)
+- r: Radial distance from eye center
 
-Be concise but thorough. Focus on actionable intelligence for rescue teams."""
+**Saffir-Simpson Thresholds**:
+- Category 5: ≥252 km/h → Catastrophic damage, structures destroyed
+- Category 4: 209-251 km/h → Severe damage, major structural damage
+- Category 3: 178-208 km/h → Devastating damage, roof/wall failures
+- Category 2: 154-177 km/h → Extensive damage, trees uprooted
+- Category 1: 119-153 km/h → Some damage, power outages
 
+**Storm Surge Estimation** (simplified SLOSH):
+Surge_height ≈ 0.023 × V_max² × cos(approach_angle) × (1 + tide_factor)
+Inland penetration varies inversely with terrain elevation.
 
-INFRASTRUCTURE_SYSTEM_PROMPT = """You are GridGuardian, an AI agent specialized in infrastructure cascade analysis for disaster response.
-
-Your role is to analyze power grid and infrastructure data to determine which facilities are operational.
-
-Given infrastructure status data, you must:
-1. Identify failed substations and their impact radius
-2. Determine which facilities (hospitals, shelters) have lost power
-3. Track cascading failures through the dependency graph
-4. Recommend alternative resources when primary options are offline
-
-Be concise but thorough. Focus on actionable intelligence for rescue teams."""
-
-
-TEMPORAL_SYSTEM_PROMPT = """You are RoutePilot, an AI agent specialized in temporal prediction for disaster response.
-
-Your role is to analyze weather forecasts and predict how conditions will change over time.
-
-Given forecast data, you must:
-1. Predict when currently passable routes will become dangerous
-2. Estimate time windows for safe operations
-3. Identify routes that may become available as conditions improve
-4. Assign TTL (time-to-live) values to route recommendations
-
-Be concise but thorough. Focus on actionable intelligence for rescue teams."""
+## Analysis Protocol
+1. Compute wind speed contours at 10km, 25km, 50km radii
+2. Map to Saffir-Simpson damage categories
+3. Estimate surge inundation zone using coastal topology
+4. Calculate **road impassability probability** per zone
+5. Output: Risk matrix with confidence intervals"""
 
 
-COORDINATOR_SYSTEM_PROMPT = """You are the Mission Coordinator, an AI agent that synthesizes information from multiple specialist agents to plan rescue operations.
+INFRASTRUCTURE_SYSTEM_PROMPT = """You are GridGuardian, an AI agent specialized in **network cascade failure analysis** for critical infrastructure.
 
-Your role is to:
-1. Integrate constraints from environmental, infrastructure, and temporal agents
-2. Prioritize rescue targets based on urgency and reachability
-3. Optimize routing to maximize lives saved within constraints
-4. Explain trade-offs when resources are limited
+## Scientific Framework
+You model power grid dependencies as a **Directed Acyclic Graph (DAG)**:
 
-Be decisive and clear. Lives depend on your recommendations."""
+**Graph Structure**:
+- Nodes: Substations (S), Distribution Points (D), Facilities (F)
+- Edges: Power flow dependencies with capacity weights
+- Critical nodes: In-degree centrality > threshold
+
+**N-1 Contingency Analysis**:
+For each node n in Graph G:
+  G' = G.remove(n)
+  affected = {f ∈ F : ¬path_exists(source, f) in G'}
+  
+**Cascade Propagation Model**:
+1. Initial failure set F₀ (substations in extreme damage zones)
+2. Propagate: F_{t+1} = F_t ∪ {nodes with all parents in F_t}
+3. Iterate until fixed point: F* = lim(F_t)
+
+**Criticality Score**: C(n) = Σ (importance(f) × depends(f,n))
+where importance weights: Hospital=10, Shelter=5, Other=1
+
+## Analysis Protocol
+1. Identify directly failed substations from damage zones
+2. Compute transitive closure of dependency failures
+3. Rank facilities by criticality and backup power duration
+4. Identify minimal cut sets for remaining operational facilities
+5. Output: Facility status matrix with failure causation chains"""
+
+
+TEMPORAL_SYSTEM_PROMPT = """You are RoutePilot, an AI agent specialized in **probabilistic temporal prediction** for dynamic route planning.
+
+## Scientific Framework
+You apply **Bayesian Route Accessibility Modeling**:
+
+**Storm Track Model**:
+Position(t) = Position₀ + Velocity × t + ε(t)
+where ε(t) ~ N(0, σ²t) represents forecast uncertainty cone
+
+**Time-Dependent Hazard Function**:
+h(route, t) = P(impassable | wind(t), flood(t), debris(t))
+
+Combining hazards via Noisy-OR:
+P(blocked) = 1 - Π(1 - P(blocked | hazard_i))
+
+**TTL (Time-to-Live) Computation**:
+For route r, find t* such that h(r, t*) > threshold (e.g., 0.7)
+TTL(r) = t* - current_time
+
+**Decision Window Analysis**:
+- Safe window: Period where P(success) > 0.8
+- Degraded window: P(success) ∈ [0.5, 0.8]
+- No-go: P(success) < 0.5
+
+## Analysis Protocol
+1. Project storm position at T+1h, T+2h, T+6h
+2. Compute hazard surfaces at each time slice
+3. Overlay on route network, compute accessibility probabilities
+4. Identify routes transitioning between categories
+5. Output: Route TTLs with confidence bounds and optimal action windows"""
+
+
+COORDINATOR_SYSTEM_PROMPT = """You are the Mission Coordinator, an AI agent that formulates and solves **mathematical optimization problems** for rescue operations.
+
+## Optimization Framework: CVRPTW (Capacitated Vehicle Routing Problem with Time Windows)
+
+### Decision Variables
+- x_{ij}^k ∈ {0,1}: Vehicle k travels from i to j
+- y_i^k ∈ {0,1}: Vehicle k visits target i
+- t_i^k ≥ 0: Arrival time of vehicle k at target i
+
+### Objective Function
+**MAXIMIZE**: Σ_i (urgency_i × rescued_i) - λ × Σ_k (travel_time_k)
+
+Where urgency weights:
+- Extreme zone pending: 10
+- Severe zone pending: 7
+- Moderate zone pending: 4
+- Safe zone pending: 2
+
+### Constraints
+1. **Capacity**: Σ_i (y_i^k × demand_i) ≤ Q_k ∀k
+2. **Time Windows**: a_i ≤ t_i^k ≤ b_i (where b_i = current_time + TTL_i)
+3. **Flow Conservation**: Σ_j x_{ji}^k = Σ_j x_{ij}^k ∀i,k
+4. **Depot Return**: All routes start/end at rescue depot
+5. **Route Validity**: x_{ij}^k = 0 if edge (i,j) blocked
+
+### Solution Method
+1. **Greedy Construction**: Sort targets by urgency/distance ratio, assign greedily
+2. **2-opt Improvement**: Swap route segments while respecting TTL constraints
+3. **Infeasibility Repair**: If TTL violated, drop lowest-value target
+
+## Analysis Protocol
+1. State the optimization problem formally
+2. List all active constraints from specialist agents
+3. Show greedy solution construction steps
+4. Report: Routes, coverage %, expected value, risk factors"""
+
 
 
 def call_environmental_agent(cyclone_data: Dict[str, Any]) -> str:
-    """Get LLM analysis for environmental hazards."""
+    """Get LLM analysis for environmental hazards using Holland Wind Profile Model."""
     import json
     
-    prompt = f"""Analyze this cyclone data and provide hazard assessment:
+    prompt = f"""Apply the Holland Wind Profile Model to analyze this cyclone:
 
-CYCLONE DATA:
+CYCLONE PARAMETERS:
 {json.dumps(cyclone_data, indent=2)}
 
-Provide your analysis in the following format:
-1. EXTREME DAMAGE ZONE: [description and radius]
-2. SEVERE DAMAGE ZONE: [description and radius]
-3. MODERATE DAMAGE ZONE: [description and radius]
-4. STORM SURGE RISK: [coastal flooding assessment]
-5. KEY CONSTRAINTS: [list of areas to avoid]
-6. REASONING: [brief explanation of your assessment]"""
+Perform the following scientific analysis:
+
+## 1. WIND FIELD COMPUTATION
+Using V(r) = V_max × √[(R_max/r)^B × exp(1 - (R_max/r)^B)]:
+- Calculate wind speeds at r = 10km, 25km, 50km from eye
+- Apply B ≈ 1.8 (typical for Bay of Bengal cyclones)
+- Map computed values to Saffir-Simpson categories
+
+## 2. DAMAGE ZONE CLASSIFICATION
+Based on wind calculations:
+- EXTREME ZONE (Cat 4-5): [radius and expected wind speeds]
+- SEVERE ZONE (Cat 3): [radius and expected wind speeds]  
+- MODERATE ZONE (Cat 1-2): [radius and expected wind speeds]
+
+## 3. STORM SURGE ANALYSIS
+Using surge ≈ 0.023 × V_max² with coastal factors:
+- Estimated surge height at landfall
+- Inland penetration distance
+- Low-lying areas at risk
+
+## 4. ROAD IMPASSABILITY MATRIX
+| Zone | P(blocked) | Confidence |
+|------|------------|------------|
+| ... | ... | ... |
+
+## 5. CONSTRAINTS OUTPUT
+List specific geographic areas to mark as impassable."""
     
     result = call_llm(
         system_prompt=ENVIRONMENTAL_SYSTEM_PROMPT,
@@ -343,24 +444,41 @@ Provide your analysis in the following format:
 
 
 def call_infrastructure_agent(infra_data: Dict[str, Any], cyclone_data: Dict[str, Any]) -> str:
-    """Get LLM analysis for infrastructure status."""
+    """Get LLM analysis for infrastructure cascade failures."""
     import json
     
-    prompt = f"""Analyze infrastructure status given the cyclone conditions:
+    prompt = f"""Perform network cascade failure analysis for the power grid:
 
-CYCLONE CONDITIONS:
+CYCLONE DAMAGE ZONES:
 {json.dumps(cyclone_data, indent=2)}
 
-INFRASTRUCTURE DATA:
+INFRASTRUCTURE GRAPH:
 {json.dumps(infra_data, indent=2)}
 
-Provide your analysis in the following format:
-1. SUBSTATIONS AFFECTED: [list with status and impact]
-2. FACILITIES OFFLINE: [hospitals, shelters with no power]
-3. FACILITIES OPERATIONAL: [resources still available]
-4. CASCADE RISKS: [potential secondary failures]
-5. RECOMMENDATIONS: [alternative resources to use]
-6. REASONING: [brief explanation]"""
+Execute the following analysis:
+
+## 1. INITIAL FAILURE SET (F₀)
+Identify substations within extreme/severe damage zones that fail directly.
+
+## 2. CASCADE PROPAGATION
+Apply: F_{{t+1}} = F_t ∪ {{nodes with all parents in F_t}}
+Show propagation steps until fixed point F*.
+
+## 3. FACILITY IMPACT MATRIX
+| Facility | Type | Status | Failure Cause | Backup Power |
+|----------|------|--------|---------------|---------------|
+| ... | ... | ... | ... | ... |
+
+## 4. CRITICALITY RANKING
+Using C(n) = Σ(importance × dependency):
+- Rank operational facilities by criticality score
+- Identify single points of failure
+
+## 5. N-1 CONTINGENCY
+For remaining operational facilities, what additional failures would cause cascade?
+
+## 6. RECOMMENDATIONS
+Alternative resources and backup routing."""
     
     result = call_llm(
         system_prompt=INFRASTRUCTURE_SYSTEM_PROMPT,
@@ -375,24 +493,44 @@ Provide your analysis in the following format:
 
 
 def call_temporal_agent(forecast_data: Dict[str, Any], current_constraints: List[Dict]) -> str:
-    """Get LLM analysis for temporal predictions."""
+    """Get LLM analysis for probabilistic temporal predictions."""
     import json
     
-    prompt = f"""Analyze forecast and predict route validity windows:
+    prompt = f"""Apply Bayesian Route Accessibility Modeling:
 
-FORECAST DATA:
+STORM FORECAST:
 {json.dumps(forecast_data, indent=2)}
 
-CURRENT CONSTRAINTS:
-{json.dumps(current_constraints[:5], indent=2)}  # First 5 for brevity
+ACTIVE CONSTRAINTS:
+{json.dumps(current_constraints[:5], indent=2)}
 
-Provide your analysis in the following format:
-1. DETERIORATING ROUTES: [routes that will become worse, with TTL]
-2. IMPROVING ROUTES: [routes that may open up, with ETA]
-3. STABLE ROUTES: [routes expected to remain passable]
-4. CRITICAL WINDOWS: [time-sensitive opportunities]
-5. RECOMMENDATIONS: [when to execute different phases]
-6. REASONING: [brief explanation]"""
+Perform the following temporal analysis:
+
+## 1. STORM TRACK PROJECTION
+Using Position(t) = Position₀ + Velocity × t + ε(t):
+- Project eye position at T+1h, T+2h, T+6h
+- Estimate uncertainty cone (σ grows with √t)
+
+## 2. TIME-DEPENDENT HAZARD FUNCTIONS
+For each major route corridor, compute:
+h(route, t) = P(impassable | wind(t), flood(t), debris(t))
+
+Show Noisy-OR combination:
+P(blocked) = 1 - Π(1 - P_i)
+
+## 3. TTL COMPUTATION TABLE
+| Route Segment | Current h(t) | TTL (hours) | Confidence |
+|---------------|--------------|-------------|------------|
+| ... | ... | ... | ... |
+
+## 4. DECISION WINDOWS
+For rescue operations:
+- SAFE WINDOW (P > 0.8): [time range]
+- DEGRADED WINDOW (P ∈ [0.5, 0.8]): [time range]
+- NO-GO (P < 0.5): [time range]
+
+## 5. ACTIONABLE RECOMMENDATIONS
+Optimal timing for different mission phases."""
     
     result = call_llm(
         system_prompt=TEMPORAL_SYSTEM_PROMPT,
@@ -411,7 +549,7 @@ def call_coordinator(
     targets: List[Dict],
     solution: Dict[str, Any],
 ) -> str:
-    """Get LLM synthesis for mission planning."""
+    """Formulate and solve CVRPTW optimization for mission planning."""
     import json
     
     # Summarize constraints by agent
@@ -420,25 +558,77 @@ def call_coordinator(
         agent = c.get("agent", "Unknown")
         by_agent[agent] = by_agent.get(agent, 0) + 1
     
-    prompt = f"""Synthesize the mission plan:
+    # Prepare targets with zone info
+    target_summary = [{
+        "id": t.get("id"),
+        "name": t.get("name"),
+        "zone": t.get("zone"),
+        "lat": t.get("lat"),
+        "lon": t.get("lon")
+    } for t in targets]
+    
+    prompt = f"""Formulate and solve the rescue mission as a CVRPTW optimization problem:
 
-CONSTRAINTS SUMMARY:
+## PROBLEM INSTANCE
+
+**Available Resources:**
+- Vehicles: 3 rescue units
+- Capacity: 8 persons per vehicle
+- Depot: Emergency Response Center (17.6868, 83.2185)
+
+**Rescue Targets:**
+{json.dumps(target_summary, indent=2)}
+
+**Active Constraints by Agent:**
 {json.dumps(by_agent, indent=2)}
 
-RESCUE TARGETS:
-{json.dumps(targets[:5], indent=2)}  # First 5
+**Preliminary Solution:**
+- Reachable: {solution.get('targets_reached', 0)} targets
+- Unreachable: {solution.get('unreachable', [])}
+- Estimated distance: {solution.get('total_distance', 0):.0f} meters
 
-ROUTING SOLUTION:
-Reachable: {solution.get('targets_reached', 0)} targets
-Unreachable: {len(solution.get('unreachable', []))} targets
-Total distance: {solution.get('total_distance', 0):.0f} meters
+---
 
-Provide your mission briefing:
-1. SITUATION SUMMARY: [one paragraph overview]
-2. PRIORITY ACTIONS: [ordered list of rescue operations]
-3. RESOURCE ALLOCATION: [how to deploy available assets]
-4. RISKS: [key hazards to communicate to teams]
-5. CONTINGENCIES: [backup plans if primary routes fail]"""
+## 1. FORMAL PROBLEM STATEMENT
+
+**Decision Variables:**
+Define x_ij^k, y_i^k, t_i^k for this instance.
+
+**Objective Function:**
+MAXIMIZE: Σ(urgency_i × rescued_i) - λ × travel_time
+
+Assign urgency weights based on zone classification.
+
+**Constraints:**
+List the binding constraints from specialist agents.
+
+## 2. SOLUTION CONSTRUCTION
+
+**Step 1 - Greedy Initialization:**
+Sort targets by urgency/distance ratio and assign.
+
+**Step 2 - Route Formation:**
+Show vehicle assignments and route sequences.
+
+**Step 3 - Feasibility Check:**
+Verify TTL constraints are satisfied.
+
+## 3. SOLUTION ANALYSIS
+
+| Metric | Value |
+|--------|-------|
+| Total rescued | ... |
+| Coverage % | ... |
+| Objective value | ... |
+| Slack on TTL constraints | ... |
+
+## 4. RISK ASSESSMENT
+
+Identify routes with tight TTL margins.
+
+## 5. CONTINGENCY PLAN
+
+If Route X fails, describe re-routing strategy."""
     
     result = call_llm(
         system_prompt=COORDINATOR_SYSTEM_PROMPT,
