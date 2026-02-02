@@ -628,7 +628,7 @@ def solve_rescue_mission(
     assignments: List[VehicleAssignment] = []
     assigned_target_ids = set()
     
-    # First pass: Assign medical vehicles to medical emergencies
+    # First pass: Assign medical vehicles to medical emergencies (only reachable ones)
     medical_vehicles = [v for v in vehicles if v.get("medical_equipped")]
     medical_targets = [t for t in prioritized_targets 
                        if any(m in t.get("medical_needs", []) for m in 
@@ -638,41 +638,53 @@ def solve_rescue_mission(
         if not medical_targets:
             break
         
-        # Assign first available critical target
+        # Find first reachable critical target
         for target in medical_targets:
-            if target["id"] not in assigned_target_ids:
-                matched = [target]
-                for t in prioritized_targets:
-                    if (t["id"] not in assigned_target_ids and 
-                        t["id"] != target["id"] and
-                        sum(m["population"] for m in matched) + t["population"] <= vehicle["capacity"]):
+            if target["id"] in assigned_target_ids:
+                continue
+            
+            # Check if route to this target exists
+            test_route = find_route(G, depot["lat"], depot["lon"], target["lat"], target["lon"])
+            if not test_route.get("success"):
+                continue  # Skip unreachable targets
+            
+            matched = [target]
+            # Add nearby reachable targets
+            for t in prioritized_targets:
+                if (t["id"] not in assigned_target_ids and 
+                    t["id"] != target["id"] and
+                    sum(m["population"] for m in matched) + t["population"] <= vehicle["capacity"]):
+                    # Check if this target is also reachable
+                    t_route = find_route(G, depot["lat"], depot["lon"], t["lat"], t["lon"])
+                    if t_route.get("success"):
                         matched.append(t)
                         if len(matched) >= 3:  # Max 3 stops per trip
                             break
-                
-                # Calculate route
-                stops = [(depot["lat"], depot["lon"])]
-                for t in matched:
-                    stops.append((t["lat"], t["lon"]))
-                    assigned_target_ids.add(t["id"])
-                stops.append((depot["lat"], depot["lon"]))  # Return to depot
-                
-                route = find_multi_stop_route(G, stops)
-                
-                assignment = VehicleAssignment(
-                    vehicle_id=vehicle["id"],
-                    vehicle_name=vehicle["name"],
-                    targets=matched,
-                    route=route if route.get("success") else None,
-                    total_population=sum(t["population"] for t in matched),
-                    total_distance_km=route.get("distance_km", 0) if route else 0,
-                    estimated_time_min=route.get("travel_time_min", 0) if route else 0,
-                    priority_score=sum(calculate_target_priority(t) for t in matched),
-                )
-                assignments.append(assignment)
-                break
+            
+            # Calculate route
+            stops = [(depot["lat"], depot["lon"])]
+            for t in matched:
+                stops.append((t["lat"], t["lon"]))
+                assigned_target_ids.add(t["id"])
+            stops.append((depot["lat"], depot["lon"]))  # Return to depot
+            
+            route = find_multi_stop_route(G, stops)
+            
+            assignment = VehicleAssignment(
+                vehicle_id=vehicle["id"],
+                vehicle_name=vehicle["name"],
+                targets=matched,
+                route=route if route.get("success") else None,
+                total_population=sum(t["population"] for t in matched),
+                total_distance_km=route.get("distance_km", 0) if route else 0,
+                estimated_time_min=route.get("travel_time_min", 0) if route else 0,
+                priority_score=sum(calculate_target_priority(t) for t in matched),
+            )
+            assignments.append(assignment)
+            break
     
     # Second pass: Assign remaining vehicles to remaining targets
+    # Only assign targets that have valid routes
     other_vehicles = [v for v in vehicles if not v.get("medical_equipped")]
     remaining_targets = [t for t in prioritized_targets 
                         if t["id"] not in assigned_target_ids]
@@ -681,7 +693,7 @@ def solve_rescue_mission(
         if not remaining_targets:
             break
         
-        # Take highest priority targets that fit capacity
+        # Take highest priority targets that fit capacity AND are reachable
         matched = []
         current_capacity = 0
         
@@ -693,6 +705,11 @@ def solve_rescue_mission(
             if target.get("accessibility") == "flooded":
                 if vehicle.get("water_fording_m", 0) < 1.0:
                     continue
+            
+            # Check if route exists before adding
+            test_route = find_route(G, depot["lat"], depot["lon"], target["lat"], target["lon"])
+            if not test_route.get("success"):
+                continue  # Skip unreachable targets
             
             if current_capacity + target["population"] <= vehicle["capacity"]:
                 matched.append(target)
