@@ -39,6 +39,31 @@ from agents.llm_client import (
     call_coordinator,
 )
 
+# Import geographic data service
+from services.geo_data import (
+    extract_roads,
+    extract_water,
+    extract_buildings,
+    extract_landuse,
+    extract_all,
+    get_agent_instructions,
+    ROAD_CLASSIFICATION,
+    WATER_CLASSIFICATION,
+    BUILDING_CLASSIFICATION,
+    LANDUSE_CLASSIFICATION,
+)
+
+# Import mission solver and routing
+from services.mission_solver import (
+    RESCUE_DEPOT,
+    RESCUE_VEHICLES,
+    RESCUE_TARGETS,
+    solve_rescue_mission,
+    get_mission_data,
+    calculate_target_priority,
+)
+from services.routing_service import get_road_graph, apply_constraints
+
 
 # ============================================================================
 # WebSocket Connection Manager
@@ -121,41 +146,8 @@ CYCLONE_HUDHUD_CONFIG = {
     "surge_inland_distance_km": 2,
 }
 
-# Rescue mission configuration - diverse test data for CVRPTW optimization
-RESCUE_TARGETS = [
-    # Extreme zone - highest urgency, time-critical
-    {"id": "T1", "lat": 17.7200, "lon": 83.3200, "name": "Coastal Family A", "status": "pending", "zone": "extreme", "population": 5, "type": "family", "ttl_hours": 0.5, "special_needs": True},
-    {"id": "T2", "lat": 17.7100, "lon": 83.3100, "name": "Beach Resort Workers", "status": "pending", "zone": "extreme", "population": 12, "type": "group", "ttl_hours": 0.5, "special_needs": False},
-    {"id": "T3", "lat": 17.7150, "lon": 83.3050, "name": "Fishing Village Elders", "status": "pending", "zone": "extreme", "population": 8, "type": "group", "ttl_hours": 1.0, "special_needs": True},
-    
-    # Severe zone - high urgency
-    {"id": "T4", "lat": 17.7050, "lon": 83.2800, "name": "Primary School", "status": "pending", "zone": "severe", "population": 25, "type": "school", "ttl_hours": 2.0, "special_needs": False},
-    {"id": "T5", "lat": 17.7300, "lon": 83.2600, "name": "Family D - Near Substation", "status": "pending", "zone": "severe", "population": 4, "type": "family", "ttl_hours": 1.5, "special_needs": False},
-    {"id": "T6", "lat": 17.6950, "lon": 83.2900, "name": "Clinic Patients", "status": "pending", "zone": "severe", "population": 15, "type": "medical", "ttl_hours": 1.0, "special_needs": True},
-    {"id": "T7", "lat": 17.7000, "lon": 83.2700, "name": "Temple Shelter Group", "status": "pending", "zone": "severe", "population": 30, "type": "shelter", "ttl_hours": 3.0, "special_needs": False},
-    
-    # Moderate zone - medium urgency
-    {"id": "T8", "lat": 17.6900, "lon": 83.2500, "name": "Family C - River Bank", "status": "pending", "zone": "moderate", "population": 6, "type": "family", "ttl_hours": 4.0, "special_needs": False},
-    {"id": "T9", "lat": 17.6800, "lon": 83.2400, "name": "Community Center", "status": "pending", "zone": "moderate", "population": 45, "type": "shelter", "ttl_hours": 6.0, "special_needs": False},
-    {"id": "T10", "lat": 17.6850, "lon": 83.2550, "name": "Apartment Block B", "status": "pending", "zone": "moderate", "population": 20, "type": "residential", "ttl_hours": 5.0, "special_needs": True},
-    {"id": "T11", "lat": 17.6700, "lon": 83.2600, "name": "Warehouse Workers", "status": "pending", "zone": "moderate", "population": 8, "type": "industrial", "ttl_hours": 4.0, "special_needs": False},
-    
-    # Safe zone - lower urgency, staging points
-    {"id": "T12", "lat": 17.6750, "lon": 83.2100, "name": "Family E - Hilltop", "status": "pending", "zone": "safe", "population": 3, "type": "family", "ttl_hours": 12.0, "special_needs": False},
-    {"id": "T13", "lat": 17.6600, "lon": 83.2300, "name": "School Gymnasium", "status": "pending", "zone": "safe", "population": 60, "type": "shelter", "ttl_hours": 24.0, "special_needs": False},
-    {"id": "T14", "lat": 17.6550, "lon": 83.2000, "name": "Rural Hamlet", "status": "pending", "zone": "safe", "population": 15, "type": "village", "ttl_hours": 12.0, "special_needs": False},
-    {"id": "T15", "lat": 17.6650, "lon": 83.1900, "name": "Factory Dormitory", "status": "pending", "zone": "safe", "population": 35, "type": "residential", "ttl_hours": 8.0, "special_needs": False},
-]
-
-RESCUE_DEPOT = {"lat": 17.6868, "lon": 83.2185, "name": "Emergency Response Center"}
-
-# Vehicle fleet configuration
-RESCUE_VEHICLES = [
-    {"id": "V1", "type": "Heavy Rescue", "capacity": 12, "speed_kmh": 40, "fuel_range_km": 150},
-    {"id": "V2", "type": "Ambulance", "capacity": 4, "speed_kmh": 60, "fuel_range_km": 200, "medical": True},
-    {"id": "V3", "type": "Troop Carrier", "capacity": 20, "speed_kmh": 35, "fuel_range_km": 120},
-    {"id": "V4", "type": "Light Rescue", "capacity": 6, "speed_kmh": 50, "fuel_range_km": 180},
-]
+# Note: RESCUE_TARGETS, RESCUE_VEHICLES, RESCUE_DEPOT now imported from services.mission_solver
+# This provides 20 detailed targets with real Visakhapatnam addresses and 6 vehicles with diverse capabilities
 
 
 
@@ -276,6 +268,137 @@ async def get_config():
 async def get_status():
     """Get current workflow status."""
     return workflow_state
+
+
+# ============================================================================
+# Geographic Data API Endpoints
+# ============================================================================
+
+# Default place for geographic data
+GEO_PLACE = "Visakhapatnam, India"
+
+# Cache for geographic data (loaded once on first request)
+_geo_cache = {
+    "roads": None,
+    "water": None,
+    "buildings": None,
+    "landuse": None,
+    "all": None
+}
+
+
+@app.get("/api/geo/roads")
+async def get_roads():
+    """
+    Get road network with highway classification.
+    
+    Returns GeoJSON FeatureCollection with road features.
+    Each feature includes:
+    - highway_type: OSM highway tag (motorway, primary, etc.)
+    - classification: Detailed classification with styling and AI metadata
+    - agent_metadata: Information for AI agent constraint processing
+    """
+    global _geo_cache
+    if _geo_cache["roads"] is None:
+        _geo_cache["roads"] = extract_roads(GEO_PLACE)
+    return _geo_cache["roads"]
+
+
+@app.get("/api/geo/water")
+async def get_water():
+    """
+    Get water bodies and waterways.
+    
+    Returns GeoJSON FeatureCollection with water features.
+    Each feature includes:
+    - water_type: Type of water feature (river, stream, lake, etc.)
+    - classification: Flood risk and buffer zone information
+    - agent_metadata: Flood risk levels for AI agent processing
+    """
+    global _geo_cache
+    if _geo_cache["water"] is None:
+        _geo_cache["water"] = extract_water(GEO_PLACE)
+    return _geo_cache["water"]
+
+
+@app.get("/api/geo/buildings")
+async def get_buildings():
+    """
+    Get building footprints with classification.
+    
+    Returns GeoJSON FeatureCollection with building features.
+    Each feature includes:
+    - building_type: Type of building (residential, hospital, school, etc.)
+    - classification: Evacuation priority and shelter information
+    - agent_metadata: Priority and capacity for rescue planning
+    """
+    global _geo_cache
+    if _geo_cache["buildings"] is None:
+        _geo_cache["buildings"] = extract_buildings(GEO_PLACE)
+    return _geo_cache["buildings"]
+
+
+@app.get("/api/geo/landuse")
+async def get_landuse():
+    """
+    Get land use zones.
+    
+    Returns GeoJSON FeatureCollection with land use features.
+    Each feature includes:
+    - landuse_type: Type of land use (residential, industrial, etc.)
+    - classification: Population density and evacuation priority
+    - agent_metadata: Population estimation for rescue planning
+    """
+    global _geo_cache
+    if _geo_cache["landuse"] is None:
+        _geo_cache["landuse"] = extract_landuse(GEO_PLACE)
+    return _geo_cache["landuse"]
+
+
+@app.get("/api/geo/all")
+async def get_all_geo():
+    """
+    Get all geographic data layers bundled together.
+    
+    Returns all layers (roads, water, buildings, landuse) in one response.
+    Includes summary statistics and agent layer guide.
+    
+    This is the recommended endpoint for initial map load.
+    """
+    global _geo_cache
+    if _geo_cache["all"] is None:
+        _geo_cache["all"] = extract_all(GEO_PLACE)
+    return _geo_cache["all"]
+
+
+@app.get("/api/geo/schema")
+async def get_geo_schema():
+    """
+    Get classification schemas for all layers.
+    
+    Returns the full classification schemas used for styling
+    and AI agent processing. Useful for understanding available
+    categories and their properties.
+    """
+    return {
+        "roads": ROAD_CLASSIFICATION,
+        "water": WATER_CLASSIFICATION,
+        "buildings": BUILDING_CLASSIFICATION,
+        "landuse": LANDUSE_CLASSIFICATION
+    }
+
+
+@app.get("/api/geo/agent-guide")
+async def get_agent_guide():
+    """
+    Get instructions for AI agents on using geographic data.
+    
+    Returns structured guidance on:
+    - How to interpret each layer
+    - What actions can be taken on features
+    - Priority hierarchies and field mappings
+    """
+    return get_agent_instructions()
 
 
 # ============================================================================
@@ -644,13 +767,13 @@ async def run_workflow_with_updates():
     
     await wait(0.2)
     
-    # Step 6: Mission Solver - Show rescue targets and compute routes
+    # Step 6: Mission Solver - Use road network for actual routing
     await manager.broadcast({
         "type": "agent_start",
         "agent": "MissionSolver",
-        "message": "Analyzing rescue mission targets...",
+        "message": f"Solving rescue mission with {len(RESCUE_TARGETS)} targets, {len(RESCUE_VEHICLES)} vehicles...",
     })
-    await wait(0.4)
+    await wait(0.3)
     
     # Add rescue depot marker
     await manager.broadcast({
@@ -658,37 +781,48 @@ async def run_workflow_with_updates():
         "agent": "MissionSolver",
         "marker_type": "depot",
         "position": [RESCUE_DEPOT["lat"], RESCUE_DEPOT["lon"]],
-        "popup": f"🚒 {RESCUE_DEPOT['name']}<br>Rescue vehicles: 3",
+        "popup": f"🚒 {RESCUE_DEPOT['name']}<br>Vehicles: {len(RESCUE_VEHICLES)}",
         "icon": "depot",
     })
     await wait(0.1)
     
-    # Assess each target based on damage zones
-    reachable = []
-    unreachable = []
+    # Run road-based mission solver
+    await manager.broadcast({
+        "type": "step",
+        "agent": "MissionSolver",
+        "step": "routing",
+        "message": "Computing optimal routes using road network...",
+    })
+    
+    # Solve the mission using actual road graph
+    solution = solve_rescue_mission(
+        place="Visakhapatnam, India",
+        targets=RESCUE_TARGETS,
+        vehicles=RESCUE_VEHICLES,
+        depot=RESCUE_DEPOT,
+        constraints=workflow_state["constraints"],
+    )
+    
+    await wait(0.3)
+    
+    # Show target markers with status
+    assigned_ids = set()
+    for assignment in solution.get("assignments", []):
+        for t in assignment.get("targets", []):
+            assigned_ids.add(t["id"])
     
     for target in RESCUE_TARGETS:
-        await wait(0.1)
+        is_assigned = target["id"] in assigned_ids
+        icon_type = "target_ok" if is_assigned else "target_blocked"
+        status_text = "✅ ASSIGNED" if is_assigned else "⏳ PENDING"
         
-        # Determine if target is reachable based on zone
-        if target["zone"] in ["extreme", "flooded"]:
-            status = "unreachable"
-            unreachable.append(target)
-        elif target["zone"] == "severe":
-            # 50% chance of being reachable in severe zone
-            import random
-            if random.random() > 0.5:
-                status = "reachable"
-                reachable.append(target)
-            else:
-                status = "unreachable"
-                unreachable.append(target)
-        else:
-            status = "reachable"
-            reachable.append(target)
-        
-        icon_type = "target_ok" if status == "reachable" else "target_blocked"
-        popup_status = "✅ REACHABLE" if status == "reachable" else "❌ BLOCKED"
+        # Build popup with detailed info
+        popup = f"🎯 <b>{target['name']}</b><br>"
+        popup += f"📍 {target.get('address', 'N/A')}<br>"
+        popup += f"👥 Population: {target['population']}<br>"
+        popup += f"⚠️ Zone: {target['zone']}<br>"
+        popup += f"⏱️ TTL: {target.get('ttl_hours', 'N/A')} hours<br>"
+        popup += f"{status_text}"
         
         await manager.broadcast({
             "type": "marker",
@@ -696,82 +830,70 @@ async def run_workflow_with_updates():
             "marker_type": icon_type,
             "id": target["id"],
             "position": [target["lat"], target["lon"]],
-            "popup": f"🎯 {target['name']}<br>Zone: {target['zone']}<br>{popup_status}",
+            "popup": popup,
             "icon": icon_type,
         })
-        
-        await manager.broadcast({
-            "type": "target_assessment",
-            "target": target,
-            "status": status,
-            "reachable_count": len(reachable),
-            "unreachable_count": len(unreachable),
-        })
+        await wait(0.05)
+    
+    # Display routes for each vehicle assignment
+    route_colors = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"]
+    
+    for idx, assignment in enumerate(solution.get("assignments", [])):
+        route = assignment.get("route")
+        if route and route.get("coords"):
+            color = route_colors[idx % len(route_colors)]
+            
+            # Build route popup with road details
+            route_popup = f"🚗 <b>{assignment['vehicle_name']}</b><br>"
+            route_popup += f"📏 Distance: {assignment['distance_km']} km<br>"
+            route_popup += f"⏱️ Est. Time: {assignment['time_min']} min<br>"
+            route_popup += f"👥 Rescuing: {assignment['total_population']} people<br>"
+            
+            # Add road names if available
+            if route.get("road_segments"):
+                main_roads = [s["road"] for s in route["road_segments"][:3] if s["road"] != "Unnamed Road"]
+                if main_roads:
+                    route_popup += f"📌 Via: {', '.join(main_roads)}"
+            
+            await manager.broadcast({
+                "type": "route_complete",
+                "agent": "MissionSolver",
+                "vehicle_id": assignment["vehicle_id"],
+                "vehicle_name": assignment["vehicle_name"],
+                "route": route["coords"],
+                "total_distance_km": assignment["distance_km"],
+                "travel_time_min": assignment["time_min"],
+                "targets_served": len(assignment["targets"]),
+                "target_names": [t["name"] for t in assignment["targets"]],
+                "color": color,
+                "popup": route_popup,
+                "road_segments": route.get("road_segments", []),
+                "directions": route.get("directions", []),
+            })
+            await wait(0.2)
     
     await wait(0.2)
     
-    # Compute routes for reachable targets
-    if reachable:
-        await manager.broadcast({
-            "type": "step",
-            "agent": "MissionSolver",
-            "step": "routing",
-            "message": f"Computing optimal routes for {len(reachable)} reachable targets...",
-        })
-        await wait(0.5)
-        
-        # Simulate route computation - create a simple greedy route
-        route_coords = [[RESCUE_DEPOT["lat"], RESCUE_DEPOT["lon"]]]
-        total_distance = 0
-        
-        for i, target in enumerate(reachable):
-            await wait(0.1)
-            
-            # Add route segment
-            prev = route_coords[-1]
-            route_coords.append([target["lat"], target["lon"]])
-            
-            # Calculate approximate distance
-            import math
-            dist = math.sqrt((target["lat"] - prev[0])**2 + (target["lon"] - prev[1])**2) * 111  # km
-            total_distance += dist
-            
-            # Send route segment
-            await manager.broadcast({
-                "type": "route_segment",
-                "agent": "MissionSolver",
-                "from": {"lat": prev[0], "lon": prev[1]},
-                "to": {"lat": target["lat"], "lon": target["lon"]},
-                "target": target,
-                "segment_index": i,
-                "distance_km": round(dist, 2),
-            })
-        
-        # Send complete route
-        await manager.broadcast({
-            "type": "route_complete",
-            "route": route_coords,
-            "total_distance_km": round(total_distance, 2),
-            "targets_served": len(reachable),
-        })
-    
-    await wait(0.3)
-    
     # Mission summary
+    summary = solution.get("summary", {})
     await manager.broadcast({
         "type": "mission_summary",
-        "reachable": len(reachable),
-        "unreachable": len(unreachable),
-        "total_targets": len(RESCUE_TARGETS),
-        "reachable_list": [t["name"] for t in reachable],
-        "unreachable_list": [t["name"] for t in unreachable],
+        "total_targets": summary.get("total_targets", len(RESCUE_TARGETS)),
+        "targets_assigned": summary.get("targets_assigned", 0),
+        "targets_unassigned": summary.get("targets_unassigned", 0),
+        "population_rescued": summary.get("total_population_rescued", 0),
+        "population_at_risk": summary.get("total_population_at_risk", 0),
+        "total_distance_km": summary.get("total_distance_km", 0),
+        "vehicles_deployed": summary.get("vehicles_deployed", 0),
+        "assignments": solution.get("assignments", []),
     })
     
     await manager.broadcast({
         "type": "agent_complete",
         "agent": "MissionSolver",
-        "message": f"Rescue plan: {len(reachable)}/{len(RESCUE_TARGETS)} targets reachable",
-        "constraint_count": len(reachable),
+        "message": f"Rescue plan: {summary.get('targets_assigned', 0)}/{summary.get('total_targets', 0)} targets, "
+                   f"{summary.get('total_population_rescued', 0)} people, {summary.get('total_distance_km', 0)} km",
+        "constraint_count": summary.get("targets_assigned", 0),
     })
     
     # Workflow complete
@@ -786,11 +908,12 @@ async def run_workflow_with_updates():
             "FloodSentinel": 4,
             "GridGuardian": 5,
             "RoutePilot": 3,
-            "MissionSolver": len(reachable),
+            "MissionSolver": summary.get("targets_assigned", 0),
         },
         "mission_result": {
-            "reachable": len(reachable),
-            "unreachable": len(unreachable),
+            "targets_assigned": summary.get("targets_assigned", 0),
+            "population_rescued": summary.get("total_population_rescued", 0),
+            "total_distance_km": summary.get("total_distance_km", 0),
         }
     })
 
