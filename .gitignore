@@ -111,3 +111,5 @@ dmypy.json
 *.gif
 !docs/*.png
 !docs/*.jpg
+
+/Gemini.md
