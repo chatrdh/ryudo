@@ -20,10 +20,12 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 import networkx as nx
+from ryudo.platform.events import attach_event_envelope
+from ryudo.platform.replay import ReplayStore, deterministic_run_id
 
 # Import Ryudo agents
 from agents.state import RyudoState, GraphConstraint
@@ -87,10 +89,20 @@ class ConnectionManager:
     
     async def broadcast(self, message: Dict[str, Any]):
         """Send message to all connected clients."""
+        run_id = workflow_state.get("run_id")
+        outbound = attach_event_envelope(
+            message,
+            run_id=run_id,
+            default_source="server",
+        )
+        event = outbound.get("event")
+        if run_id and isinstance(event, dict):
+            replay_store.append_event(run_id, event)
+
         disconnected = []
         for connection in self.active_connections:
             try:
-                await connection.send_json(message)
+                await connection.send_json(outbound)
             except Exception:
                 disconnected.append(connection)
         
@@ -99,6 +111,7 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+replay_store = ReplayStore(max_runs=100, max_events_per_run=10000)
 
 
 # ============================================================================
@@ -115,6 +128,7 @@ workflow_state = {
     "current_step": None,
     "base_graph_loaded": False,
     "completed": False,
+    "run_id": None,
 }
 
 SIMULATION_SPEED = 1.0  # Multiplier: 1.0 = normal, 2.0 = 2x faster
@@ -148,6 +162,38 @@ CYCLONE_HUDHUD_CONFIG = {
 
 # Note: RESCUE_TARGETS, RESCUE_VEHICLES, RESCUE_DEPOT now imported from services.mission_solver
 # This provides 20 detailed targets with real Visakhapatnam addresses and 6 vehicles with diverse capabilities
+
+
+def _scenario_seed_payload() -> Dict[str, Any]:
+    """Build deterministic scenario payload used for run-id generation."""
+    return {
+        "workflow": "cycloneshield_demo",
+        "cyclone": CYCLONE_HUDHUD_CONFIG,
+        "depot": {
+            "name": RESCUE_DEPOT.get("name"),
+            "lat": RESCUE_DEPOT.get("lat"),
+            "lon": RESCUE_DEPOT.get("lon"),
+        },
+        "vehicles": [
+            {
+                "id": vehicle.get("id"),
+                "name": vehicle.get("name"),
+                "capacity": vehicle.get("capacity"),
+                "zone_access": vehicle.get("zone_access"),
+            }
+            for vehicle in RESCUE_VEHICLES
+        ],
+        "targets": [
+            {
+                "id": target.get("id"),
+                "lat": target.get("lat"),
+                "lon": target.get("lon"),
+                "population": target.get("population"),
+                "zone": target.get("zone"),
+            }
+            for target in RESCUE_TARGETS
+        ],
+    }
 
 
 
@@ -212,8 +258,16 @@ async def root():
 async def start_workflow():
     """Manually start the workflow via HTTP."""
     if not workflow_state["running"]:
+        preview_run_id = deterministic_run_id(
+            _scenario_seed_payload(),
+            namespace="ryudo.workflow.cycloneshield.v1",
+        )
         asyncio.create_task(run_workflow_with_updates())
-        return {"status": "started", "message": "Workflow started in background"}
+        return {
+            "status": "started",
+            "message": "Workflow started in background",
+            "run_id": preview_run_id,
+        }
     return {"status": "running", "message": "Workflow already running"}
 
 
@@ -225,11 +279,11 @@ async def websocket_endpoint(websocket: WebSocket):
     
     try:
         # Send initial state
-        await websocket.send_json({
+        await websocket.send_json(attach_event_envelope({
             "type": "connected",
             "message": "Connected to Ryudo server",
             "config": CYCLONE_HUDHUD_CONFIG,
-        })
+        }, run_id=workflow_state.get("run_id"), default_source="server"))
         
         # Keep connection alive and listen for messages
         while True:
@@ -242,6 +296,7 @@ async def websocket_endpoint(websocket: WebSocket):
             elif message.get("action") == "reset":
                 workflow_state["constraints"] = []
                 workflow_state["completed"] = False
+                workflow_state["run_id"] = None
                 await manager.broadcast({"type": "reset"})
             elif message.get("action") == "set_speed":
                 global SIMULATION_SPEED
@@ -268,6 +323,41 @@ async def get_config():
 async def get_status():
     """Get current workflow status."""
     return workflow_state
+
+
+@app.get("/api/replay")
+async def list_replays(limit: int = 20):
+    """List recent replay runs."""
+    return {"runs": replay_store.list_runs(limit=limit)}
+
+
+@app.get("/api/replay/latest")
+async def get_latest_replay():
+    """Get full replay payload for the latest run."""
+    latest_run_id = replay_store.latest_run_id()
+    if latest_run_id is None:
+        raise HTTPException(status_code=404, detail="No replay runs found")
+
+    replay = replay_store.get_run(latest_run_id)
+    if replay is None:
+        raise HTTPException(status_code=404, detail=f"Replay not found: {latest_run_id}")
+    return replay
+
+
+@app.get("/api/replay/{run_id}")
+async def get_replay(run_id: str):
+    """Get full replay payload for a specific run."""
+    replay = replay_store.get_run(run_id)
+    if replay is None:
+        raise HTTPException(status_code=404, detail=f"Replay not found: {run_id}")
+    return replay
+
+
+@app.post("/api/replay/run-id")
+async def preview_replay_run_id(payload: Dict[str, Any]):
+    """Compute deterministic run id for external scenario payloads."""
+    run_id = deterministic_run_id(payload, namespace="ryudo.replay.external.v1")
+    return {"run_id": run_id}
 
 
 # ============================================================================
@@ -412,9 +502,21 @@ async def run_workflow_with_updates():
     workflow_state["running"] = True
     workflow_state["constraints"] = []
     workflow_state["completed"] = False
+    scenario_seed = _scenario_seed_payload()
+    run_id = deterministic_run_id(
+        scenario_seed,
+        namespace="ryudo.workflow.cycloneshield.v1",
+    )
+    workflow_state["run_id"] = run_id
+    replay_store.start_run(
+        scenario_seed,
+        run_id=run_id,
+        metadata={"workflow": "cycloneshield_demo"},
+    )
     
     await manager.broadcast({
         "type": "workflow_start",
+        "run_id": run_id,
         "message": "Starting LangGraph Agent Workflow",
     })
     
@@ -902,6 +1004,7 @@ async def run_workflow_with_updates():
     
     await manager.broadcast({
         "type": "workflow_complete",
+        "run_id": run_id,
         "message": "Mission planning complete!",
         "total_constraints": len(workflow_state["constraints"]),
         "summary": {
@@ -916,6 +1019,15 @@ async def run_workflow_with_updates():
             "total_distance_km": summary.get("total_distance_km", 0),
         }
     })
+
+    replay_store.complete_run(
+        run_id,
+        result={
+            "mission_summary": summary,
+            "total_constraints": len(workflow_state["constraints"]),
+        },
+        metadata={"completed": True},
+    )
 
 
 # ============================================================================
