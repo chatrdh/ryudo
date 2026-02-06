@@ -166,8 +166,6 @@ function LayerControlPanel({
 
 // Geographic data layers renderer
 function GeoDataLayers({ geoData, visibility }) {
-    const map = useMap();
-
     if (!geoData.loaded) return null;
 
     return (
@@ -259,11 +257,12 @@ function MapContent({ constraints, markers, routes, onMapReady, geoLayers, agent
 
     // Initialize layers on mount
     useEffect(() => {
-        Object.values(layersRef.current).forEach(layer => layer.addTo(map));
+        const layerGroups = layersRef.current;
+        Object.values(layerGroups).forEach(layer => layer.addTo(map));
         onMapReady?.(map);
 
         return () => {
-            Object.values(layersRef.current).forEach(layer => {
+            Object.values(layerGroups).forEach(layer => {
                 layer.clearLayers();
                 map.removeLayer(layer);
             });
@@ -343,7 +342,7 @@ function MapContent({ constraints, markers, routes, onMapReady, geoLayers, agent
                     animate: true,
                     duration: 0.5
                 });
-            } catch (e) {
+            } catch {
                 // Ignore bounds errors
             }
         }
@@ -396,7 +395,7 @@ function MapContent({ constraints, markers, routes, onMapReady, geoLayers, agent
             if (allCoords.length > 1) {
                 try {
                     map.fitBounds(allCoords, { padding: [50, 50], maxZoom: 14 });
-                } catch (e) {
+                } catch {
                     // Ignore bounds errors
                 }
             }
@@ -417,27 +416,15 @@ export function MapView({ constraints = [], markers = [], routes = [], onMapRead
     const debouncedMarkers = useDebounce(markers, 100);
 
     // Basemap state
-    const [basemap, setBasemap] = useState('dark');
+    const [basemap, setBasemap] = useState('light');
 
     // Geographic layers state with feature counts (disabled by default for performance)
     const [geoLayers, setGeoLayers] = useState({
-        roads: { visible: false, label: '🛣️ Roads', count: undefined },
-        water: { visible: false, label: '💧 Water', count: undefined },
-        buildings: { visible: false, label: '🏢 Buildings', count: undefined },
-        landuse: { visible: false, label: '🌳 Land Use', count: undefined },
+        roads: { visible: false, label: '🛣️ Roads' },
+        water: { visible: false, label: '💧 Water' },
+        buildings: { visible: false, label: '🏢 Buildings' },
+        landuse: { visible: false, label: '🌳 Land Use' },
     });
-
-    // Update counts when data loads
-    useEffect(() => {
-        if (geoData.summary) {
-            setGeoLayers(prev => ({
-                roads: { ...prev.roads, count: geoData.summary.total_roads },
-                water: { ...prev.water, count: geoData.summary.total_water_features },
-                buildings: { ...prev.buildings, count: geoData.summary.total_buildings },
-                landuse: { ...prev.landuse, count: geoData.summary.total_landuse_zones },
-            }));
-        }
-    }, [geoData.summary]);
 
     // Agent layers state (existing functionality)
     const [agentLayers, setAgentLayers] = useState({
@@ -472,13 +459,20 @@ export function MapView({ constraints = [], markers = [], routes = [], onMapRead
     }), []);
 
     const currentBasemap = BASEMAPS[basemap];
+    const summary = geoData.summary || {};
+    const geoLayersWithCounts = useMemo(() => ({
+        roads: { ...geoLayers.roads, count: summary.total_roads },
+        water: { ...geoLayers.water, count: summary.total_water_features },
+        buildings: { ...geoLayers.buildings, count: summary.total_buildings },
+        landuse: { ...geoLayers.landuse, count: summary.total_landuse_zones },
+    }), [geoLayers, summary.total_buildings, summary.total_landuse_zones, summary.total_roads, summary.total_water_features]);
 
     return (
         <div className="map-wrapper">
             <LayerControlPanel
                 basemap={basemap}
                 onBasemapChange={setBasemap}
-                geoLayers={geoLayers}
+                geoLayers={geoLayersWithCounts}
                 onGeoToggle={toggleGeoLayer}
                 agentLayers={agentLayers}
                 onAgentToggle={toggleAgentLayer}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { Play, RotateCcw, Zap, Clock, FileText, Brain } from 'lucide-react';
 import { TimelineStep } from './TimelineStep';
 import { LogEntry } from './LogEntry';
@@ -38,20 +38,20 @@ export function Sidebar({
         <aside className="sidebar">
             {/* Header */}
             <header className="sidebar-header">
-                <motion.h1
+                <Motion.h1
                     className="sidebar-title"
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.5 }}
                 >
                     Ryudo
-                </motion.h1>
+                </Motion.h1>
                 <p className="sidebar-subtitle">Intelligent Disaster Response System</p>
             </header>
 
             {/* Controls */}
             <div className="controls">
-                <motion.button
+                <Motion.button
                     className="btn btn-primary"
                     onClick={onStart}
                     disabled={isRunning}
@@ -60,16 +60,16 @@ export function Sidebar({
                 >
                     <Play size={16} />
                     Run
-                </motion.button>
+                </Motion.button>
 
-                <motion.button
+                <Motion.button
                     className="btn btn-secondary"
                     onClick={onReset}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                 >
                     <RotateCcw size={16} />
-                </motion.button>
+                </Motion.button>
 
                 <div className="speed-control">
                     <div className="speed-slider-container">
@@ -106,7 +106,7 @@ export function Sidebar({
             <div className="content-area">
                 <AnimatePresence mode="wait">
                     {activeTab === 'timeline' && (
-                        <motion.div
+                        <Motion.div
                             key="timeline"
                             className="tab-content"
                             initial={{ opacity: 0, x: -10 }}
@@ -126,11 +126,11 @@ export function Sidebar({
                                     />
                                 ))}
                             </div>
-                        </motion.div>
+                        </Motion.div>
                     )}
 
                     {activeTab === 'logs' && (
-                        <motion.div
+                        <Motion.div
                             key="logs"
                             className="tab-content"
                             initial={{ opacity: 0, x: -10 }}
@@ -149,11 +149,11 @@ export function Sidebar({
                                     ))
                                 )}
                             </div>
-                        </motion.div>
+                        </Motion.div>
                     )}
 
                     {activeTab === 'reasoning' && (
-                        <motion.div
+                        <Motion.div
                             key="reasoning"
                             className="tab-content"
                             initial={{ opacity: 0, x: -10 }}
@@ -171,7 +171,7 @@ export function Sidebar({
                                     <ReasoningPanel key={idx} agent={r.agent} content={r.content} />
                                 ))
                             )}
-                        </motion.div>
+                        </Motion.div>
                     )}
                 </AnimatePresence>
             </div>

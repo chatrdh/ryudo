@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { Link, Unlink, Satellite } from 'lucide-react';
 import './ConnectionStatus.css';
 
@@ -13,7 +13,7 @@ export function ConnectionStatus({ status }) {
     const config = statusConfig[status] || statusConfig.connecting;
 
     return (
-        <motion.div
+        <Motion.div
             className="connection-status"
             style={{ borderColor: config.color }}
             initial={{ opacity: 0, y: -20 }}
@@ -22,6 +22,6 @@ export function ConnectionStatus({ status }) {
         >
             <config.icon size={14} style={{ color: config.color }} />
             <span>{config.text}</span>
-        </motion.div>
+        </Motion.div>
     );
 }

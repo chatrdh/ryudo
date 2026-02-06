@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { Bot } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import './ReasoningPanel.css';
@@ -26,7 +26,7 @@ function cleanContent(content) {
                 .replace(/\\sqrt\{([^}]+)\}/g, '√($1)')
                 .replace(/\\exp\(([^)]+)\)/g, 'exp($1)')
                 .replace(/\^(\d+)/g, '^$1')
-                .replace(/\_\{([^}]+)\}/g, '[$1]')
+                .replace(/_{([^}]+)}/g, '[$1]')
                 .replace(/\\/g, '');
         })
         // Clean up double dollar LaTeX blocks
@@ -38,7 +38,7 @@ export function ReasoningPanel({ agent, content }) {
     const cleanedContent = cleanContent(content);
 
     return (
-        <motion.div
+        <Motion.div
             className="reasoning-block"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -51,7 +51,6 @@ export function ReasoningPanel({ agent, content }) {
             <div className="reasoning-content">
                 <ReactMarkdown>{cleanedContent}</ReactMarkdown>
             </div>
-        </motion.div>
+        </Motion.div>
     );
 }
-

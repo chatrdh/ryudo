@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import clsx from 'clsx';
 import './LogEntry.css';
 
@@ -16,7 +16,7 @@ export function LogEntry({ log }) {
     const agentClass = getAgentClass(log.agent);
 
     return (
-        <motion.div
+        <Motion.div
             className={clsx('log-entry', agentClass)}
             initial={{ opacity: 0, y: 10, height: 0 }}
             animate={{ opacity: 1, y: 0, height: 'auto' }}
@@ -24,6 +24,6 @@ export function LogEntry({ log }) {
         >
             <span className="log-agent">[{log.agent}]</span>
             <span className="log-text">{log.text}</span>
-        </motion.div>
+        </Motion.div>
     );
 }

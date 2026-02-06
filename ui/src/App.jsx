@@ -1,172 +1,513 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useWebSocket } from './hooks/useWebSocket';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { MapView } from './components/MapContainer';
-import { Sidebar } from './components/Sidebar';
-import { ConnectionStatus } from './components/ConnectionStatus';
+import { useWebSocket } from './hooks/useWebSocket';
 import './App.css';
 
-const STEPS = [
-  { id: 'init', label: 'Initialization' },
-  { id: 'flood', label: 'Environmental' },
-  { id: 'infra', label: 'Infrastructure' },
-  { id: 'temporal', label: 'Temporal' },
-  { id: 'coord', label: 'Coordinator' },
-  { id: 'mission', label: 'Mission Solver' },
+const STEP_DEFS = [
+  {
+    key: 'load_graph',
+    label: 'Load Base Graph',
+    description: 'Initialize baseline road network and map context.',
+  },
+  {
+    key: 'environmental',
+    label: 'FloodSentinel',
+    description: 'Build dynamic weather and surge zone constraints.',
+  },
+  {
+    key: 'infrastructure',
+    label: 'GridGuardian',
+    description: 'Evaluate power outages and facility availability.',
+  },
+  {
+    key: 'temporal',
+    label: 'RoutePilot',
+    description: 'Predict route validity and TTL windows.',
+  },
+  {
+    key: 'coordinator',
+    label: 'Coordinator',
+    description: 'Merge constraints and evaluate mission feasibility.',
+  },
+  {
+    key: 'mission',
+    label: 'MissionSolver',
+    description: 'Produce final assignments and rescue routes.',
+  },
 ];
 
-function getStepIndex(agentName) {
-  if (!agentName) return -1;
-  const a = agentName.toLowerCase();
-  if (a.includes('flood') || a.includes('environmental')) return 1;
-  if (a.includes('grid')) return 2;
-  if (a.includes('route') || a.includes('temporal')) return 3;
-  if (a.includes('coord')) return 4;
-  if (a.includes('mission')) return 5;
-  return 0;
+const INITIAL_STEPS = Object.freeze(
+  STEP_DEFS.reduce((acc, step) => {
+    acc[step.key] = 'pending';
+    return acc;
+  }, {})
+);
+
+function formatClock(timestamp) {
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function statusLabel(status) {
+  if (status === 'connected') return 'Connected';
+  if (status === 'connecting') return 'Connecting';
+  if (status === 'disconnected') return 'Disconnected';
+  return 'Error';
+}
+
+function resolveStepKey(msg) {
+  const step = String(msg.step || '').toLowerCase();
+  if (step === 'load_graph' || step === 'routing') {
+    return step === 'load_graph' ? 'load_graph' : 'mission';
+  }
+
+  const agent = String(msg.agent || '').toLowerCase();
+  if (agent.includes('flood') || agent.includes('environmental')) return 'environmental';
+  if (agent.includes('grid') || agent.includes('infrastructure')) return 'infrastructure';
+  if (agent.includes('route') || agent.includes('temporal')) return 'temporal';
+  if (agent.includes('coord')) return 'coordinator';
+  if (agent.includes('mission')) return 'mission';
+  return null;
+}
+
+function createEvent(source, text, type = 'info') {
+  return {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    source,
+    text,
+    type,
+    timestamp: Date.now(),
+  };
+}
+
+function withCap(items, cap = 500) {
+  if (items.length <= cap) return items;
+  return items.slice(items.length - cap);
 }
 
 export default function App() {
   const { status, messages, send, clearMessages } = useWebSocket();
 
-  // UI State
-  const [activeStep, setActiveStep] = useState(-1);
-  const [completedSteps, setCompletedSteps] = useState([]);
-  const [logs, setLogs] = useState([]);
-  const [reasoning, setReasoning] = useState([]);
+  const [isRunning, setIsRunning] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [stepStatus, setStepStatus] = useState(INITIAL_STEPS);
   const [constraints, setConstraints] = useState([]);
   const [markers, setMarkers] = useState([]);
   const [routes, setRoutes] = useState([]);
-  const [speed, setSpeed] = useState(1.0);
-  const [isRunning, setIsRunning] = useState(false);
+  const [events, setEvents] = useState([]);
+  const [reasoning, setReasoning] = useState([]);
+  const [coordinatorStats, setCoordinatorStats] = useState(null);
+  const [missionSummary, setMissionSummary] = useState(null);
+  const [workflowSummary, setWorkflowSummary] = useState(null);
 
-  // Process WebSocket messages
-  useEffect(() => {
-    if (messages.length === 0) return;
+  const resetWorkflowState = useCallback(
+    (clearSocketMessages = true) => {
+      setIsRunning(false);
+      setStepStatus(INITIAL_STEPS);
+      setConstraints([]);
+      setMarkers([]);
+      setRoutes([]);
+      setEvents([]);
+      setReasoning([]);
+      setCoordinatorStats(null);
+      setMissionSummary(null);
+      setWorkflowSummary(null);
+      if (clearSocketMessages) {
+        clearMessages();
+      }
+    },
+    [clearMessages]
+  );
 
-    const latestMessage = messages[messages.length - 1];
-    processMessage(latestMessage);
-  }, [messages]);
+  const updateStep = useCallback((key, value) => {
+    if (!key) return;
+    setStepStatus((prev) => {
+      if (prev[key] === value) return prev;
+      return { ...prev, [key]: value };
+    });
+  }, []);
 
-  const processMessage = useCallback((msg) => {
-    switch (msg.type) {
-      case 'workflow_start':
-        resetState();
-        setActiveStep(0);
-        setIsRunning(true);
-        addLog('System', 'Workflow Started');
-        break;
+  const completeAllSteps = useCallback(() => {
+    setStepStatus((prev) => {
+      const next = { ...prev };
+      STEP_DEFS.forEach((step) => {
+        next[step.key] = 'complete';
+      });
+      return next;
+    });
+  }, []);
 
-      case 'agent_start':
-        const stepIdx = getStepIndex(msg.agent);
-        if (stepIdx !== -1) {
-          // Complete all previous steps
-          setCompletedSteps(prev => {
-            const newCompleted = [...prev];
-            for (let i = 0; i < stepIdx; i++) {
-              if (!newCompleted.includes(i)) newCompleted.push(i);
-            }
-            return newCompleted;
-          });
-          setActiveStep(stepIdx);
+  const appendEvent = useCallback((source, text, type = 'info') => {
+    setEvents((prev) => withCap([...prev, createEvent(source, text, type)]));
+  }, []);
+
+  const appendReasoning = useCallback((msg) => {
+    setReasoning((prev) =>
+      withCap([
+        ...prev,
+        {
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          agent: msg.agent || 'Agent',
+          content: msg.content || '',
+          timestamp: Date.now(),
+        },
+      ], 120)
+    );
+  }, []);
+
+  const processMessage = useCallback(
+    (msg) => {
+      const source = msg.agent || 'System';
+      const messageText = msg.message || msg.reason || msg.type;
+
+      switch (msg.type) {
+        case 'connected': {
+          appendEvent('System', 'WebSocket connected. Console ready.', 'success');
+          break;
         }
-        addLog(msg.agent, msg.message);
-        break;
 
-      case 'agent_complete':
-        setCompletedSteps(prev =>
-          prev.includes(activeStep) ? prev : [...prev, activeStep]
-        );
-        break;
+        case 'workflow_start': {
+          resetWorkflowState(false);
+          setIsRunning(true);
+          appendEvent('System', msg.message || 'Workflow started.', 'success');
+          break;
+        }
 
-      case 'reasoning':
-        setReasoning(prev => [...prev, { agent: msg.agent, content: msg.content }]);
-        addLog(msg.agent, 'Reasoning generated');
-        break;
+        case 'step': {
+          const stepKey = resolveStepKey(msg);
+          if (stepKey) updateStep(stepKey, 'active');
+          appendEvent(source, messageText, 'info');
+          break;
+        }
 
-      case 'constraint':
-        setConstraints(prev => [...prev, msg.constraint]);
-        break;
+        case 'step_complete': {
+          const stepKey = resolveStepKey(msg);
+          if (stepKey) updateStep(stepKey, 'complete');
+          appendEvent(source, messageText, 'success');
+          break;
+        }
 
-      case 'marker':
-        setMarkers(prev => [...prev, msg]);
-        break;
+        case 'agent_start': {
+          const stepKey = resolveStepKey(msg);
+          if (stepKey) updateStep(stepKey, 'active');
+          appendEvent(source, messageText, 'info');
+          break;
+        }
 
-      case 'route_complete':
-        setRoutes(prev => [...prev, { coords: msg.route, distance: msg.total_distance_km }]);
-        addLog('MissionSolver', `Route computed: ${msg.total_distance_km}km`);
-        break;
+        case 'agent_complete': {
+          const stepKey = resolveStepKey(msg);
+          if (stepKey) updateStep(stepKey, 'complete');
+          appendEvent(source, messageText, 'success');
+          break;
+        }
 
-      case 'workflow_complete':
-        setActiveStep(STEPS.length - 1);
-        setCompletedSteps(prev => {
-          const all = [];
-          for (let i = 0; i < STEPS.length; i++) all.push(i);
-          return all;
-        });
-        setIsRunning(false);
-        addLog('System', 'Workflow Complete');
-        break;
+        case 'reasoning': {
+          appendReasoning(msg);
+          appendEvent(source, 'Reasoning trace received.', 'info');
+          break;
+        }
 
-      case 'reset':
-        resetState();
-        addLog('System', 'Reset complete');
-        break;
-    }
-  }, [activeStep]);
+        case 'constraint': {
+          if (msg.constraint) {
+            setConstraints((prev) => [...prev, msg.constraint]);
+          }
+          break;
+        }
 
-  const addLog = (agent, text) => {
-    setLogs(prev => [...prev, { agent, text, timestamp: Date.now() }]);
-  };
+        case 'marker': {
+          if (msg.position) {
+            setMarkers((prev) => [...prev, msg]);
+          }
+          break;
+        }
 
-  const resetState = () => {
-    setActiveStep(-1);
-    setCompletedSteps([]);
-    setLogs([]);
-    setReasoning([]);
-    setConstraints([]);
-    setMarkers([]);
-    setRoutes([]);
-    setIsRunning(false);
-    clearMessages();
-  };
+        case 'route_complete': {
+          const route = {
+            route: msg.route || [],
+            vehicle_name: msg.vehicle_name,
+            total_distance_km: msg.total_distance_km,
+            travel_time_min: msg.travel_time_min,
+            target_names: msg.target_names || [],
+            color: msg.color,
+            popup: msg.popup,
+          };
+          setRoutes((prev) => [...prev, route]);
+          appendEvent(
+            source,
+            `${msg.vehicle_name || 'Vehicle'} route added (${msg.total_distance_km || 0} km).`,
+            'success'
+          );
+          break;
+        }
 
-  const handleStart = () => {
-    send({ action: 'start' });
+        case 'coordinator_stats': {
+          setCoordinatorStats(msg.stats || null);
+          appendEvent('Coordinator', 'Constraint merge stats updated.', 'info');
+          break;
+        }
+
+        case 'mission_summary': {
+          setMissionSummary(msg);
+          appendEvent('MissionSolver', 'Mission summary published.', 'success');
+          break;
+        }
+
+        case 'workflow_complete': {
+          completeAllSteps();
+          setWorkflowSummary(msg);
+          setIsRunning(false);
+          appendEvent('System', msg.message || 'Workflow complete.', 'success');
+          break;
+        }
+
+        case 'reset': {
+          resetWorkflowState(false);
+          appendEvent('System', 'Workflow reset completed.', 'warning');
+          break;
+        }
+
+        default: {
+          if (messageText) {
+            appendEvent(source, messageText, 'info');
+          }
+          break;
+        }
+      }
+    },
+    [
+      appendEvent,
+      appendReasoning,
+      completeAllSteps,
+      resetWorkflowState,
+      updateStep,
+    ]
+  );
+
+  useEffect(() => {
+    if (!messages.length) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    processMessage(messages[messages.length - 1]);
+  }, [messages, processMessage]);
+
+  const handleStart = useCallback(async () => {
     setIsRunning(true);
-  };
+    const sent = send({ action: 'start' });
+    if (!sent) {
+      try {
+        await fetch('/api/start', { method: 'POST' });
+      } catch {
+        appendEvent('System', 'Failed to start workflow over HTTP fallback.', 'error');
+      }
+    }
+  }, [appendEvent, send]);
 
-  const handleReset = () => {
+  const handleReset = useCallback(() => {
     send({ action: 'reset' });
-    resetState();
-  };
+    resetWorkflowState(false);
+  }, [resetWorkflowState, send]);
 
-  const handleSpeedChange = (newSpeed) => {
-    setSpeed(newSpeed);
-    send({ action: 'set_speed', speed: newSpeed });
-  };
+  const handleSpeedChange = useCallback(
+    (nextSpeed) => {
+      setSpeed(nextSpeed);
+      send({ action: 'set_speed', speed: nextSpeed });
+    },
+    [send]
+  );
+
+  const completedSteps = useMemo(
+    () => Object.values(stepStatus).filter((state) => state === 'complete').length,
+    [stepStatus]
+  );
+
+  const missionMetrics = useMemo(() => {
+    if (missionSummary) {
+      return {
+        targets: `${missionSummary.targets_assigned || 0}/${missionSummary.total_targets || 0}`,
+        rescued: missionSummary.population_rescued || 0,
+        distance: missionSummary.total_distance_km || 0,
+        deployed: missionSummary.vehicles_deployed || 0,
+      };
+    }
+
+    if (workflowSummary?.mission_result) {
+      return {
+        targets: workflowSummary.mission_result.targets_assigned || 0,
+        rescued: workflowSummary.mission_result.population_rescued || 0,
+        distance: workflowSummary.mission_result.total_distance_km || 0,
+        deployed: routes.length,
+      };
+    }
+
+    return {
+      targets: '0/0',
+      rescued: 0,
+      distance: 0,
+      deployed: routes.length,
+    };
+  }, [missionSummary, routes.length, workflowSummary]);
+
+  const recentEvents = useMemo(() => [...events].reverse(), [events]);
+  const recentReasoning = useMemo(() => [...reasoning].reverse(), [reasoning]);
 
   return (
-    <div className="app">
-      <div className="map-section">
-        <MapView
-          constraints={constraints}
-          markers={markers}
-          routes={routes}
-        />
-        <ConnectionStatus status={status} />
-      </div>
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand-block">
+          <p className="eyebrow">Ryudo Operations</p>
+          <h1>Dynamic Spatial Mission Console</h1>
+        </div>
 
-      <Sidebar
-        activeStep={activeStep}
-        completedSteps={completedSteps}
-        logs={logs}
-        reasoning={reasoning}
-        speed={speed}
-        isRunning={isRunning}
-        onStart={handleStart}
-        onReset={handleReset}
-        onSpeedChange={handleSpeedChange}
-      />
+        <div className={`status-chip status-${status}`}>
+          <span className="status-dot" />
+          {statusLabel(status)}
+        </div>
+
+        <div className="control-strip">
+          <button className="btn primary" onClick={handleStart} disabled={isRunning}>
+            Run Workflow
+          </button>
+          <button className="btn ghost" onClick={handleReset}>
+            Reset
+          </button>
+          <label className="speed-control" htmlFor="speed-range">
+            Speed {speed.toFixed(1)}x
+            <input
+              id="speed-range"
+              type="range"
+              min="0.5"
+              max="5"
+              step="0.5"
+              value={speed}
+              onChange={(event) => handleSpeedChange(parseFloat(event.target.value))}
+            />
+          </label>
+        </div>
+      </header>
+
+      <main className="workspace">
+        <section className="map-pane">
+          <MapView constraints={constraints} markers={markers} routes={routes} />
+
+          <div className="overlay-stats">
+            <article className="stat-card">
+              <h3>Workflow</h3>
+              <p>{completedSteps}/{STEP_DEFS.length} steps</p>
+            </article>
+            <article className="stat-card">
+              <h3>Constraints</h3>
+              <p>{constraints.length}</p>
+            </article>
+            <article className="stat-card">
+              <h3>Markers</h3>
+              <p>{markers.length}</p>
+            </article>
+            <article className="stat-card">
+              <h3>Routes</h3>
+              <p>{routes.length}</p>
+            </article>
+          </div>
+        </section>
+
+        <aside className="side-pane">
+          <section className="panel">
+            <div className="panel-header">
+              <h2>Workflow Timeline</h2>
+            </div>
+            <ul className="timeline-list">
+              {STEP_DEFS.map((step) => (
+                <li key={step.key} className={`timeline-item ${stepStatus[step.key]}`}>
+                  <div className="timeline-title-row">
+                    <span className="timeline-title">{step.label}</span>
+                    <span className="timeline-state">{stepStatus[step.key]}</span>
+                  </div>
+                  <p className="timeline-description">{step.description}</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="panel">
+            <div className="panel-header">
+              <h2>Mission Snapshot</h2>
+            </div>
+            <div className="metric-grid">
+              <article>
+                <h3>Targets</h3>
+                <p>{missionMetrics.targets}</p>
+              </article>
+              <article>
+                <h3>Population</h3>
+                <p>{missionMetrics.rescued}</p>
+              </article>
+              <article>
+                <h3>Distance</h3>
+                <p>{missionMetrics.distance} km</p>
+              </article>
+              <article>
+                <h3>Vehicles</h3>
+                <p>{missionMetrics.deployed}</p>
+              </article>
+            </div>
+
+            {coordinatorStats && (
+              <div className="coordinator-stats">
+                <h3>Coordinator Stats</h3>
+                <ul>
+                  <li>Zones deleted: {coordinatorStats.zones_deleted ?? 0}</li>
+                  <li>Edges removed: {coordinatorStats.edges_removed ?? 0}</li>
+                  <li>Nodes disabled: {coordinatorStats.nodes_disabled ?? 0}</li>
+                  <li>TTL applied: {coordinatorStats.ttl_applied ?? 0}</li>
+                </ul>
+              </div>
+            )}
+          </section>
+
+          <section className="panel scrollable">
+            <div className="panel-header">
+              <h2>Live Event Feed</h2>
+            </div>
+            {recentEvents.length === 0 ? (
+              <p className="empty">No events yet. Start the workflow to stream updates.</p>
+            ) : (
+              <ul className="event-list">
+                {recentEvents.map((entry) => (
+                  <li key={entry.id} className={`event-item ${entry.type}`}>
+                    <div className="event-meta">
+                      <span className="event-source">{entry.source}</span>
+                      <span className="event-time">{formatClock(entry.timestamp)}</span>
+                    </div>
+                    <p>{entry.text}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="panel scrollable">
+            <div className="panel-header">
+              <h2>Agent Reasoning</h2>
+            </div>
+            {recentReasoning.length === 0 ? (
+              <p className="empty">No reasoning traces yet.</p>
+            ) : (
+              <div className="reasoning-list">
+                {recentReasoning.map((trace) => (
+                  <details key={trace.id} className="reasoning-item" open={false}>
+                    <summary>
+                      <span>{trace.agent}</span>
+                      <time>{formatClock(trace.timestamp)}</time>
+                    </summary>
+                    <pre>{trace.content}</pre>
+                  </details>
+                ))}
+              </div>
+            )}
+          </section>
+        </aside>
+      </main>
     </div>
   );
 }
