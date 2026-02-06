@@ -138,6 +138,14 @@ graph TD
 
 ---
 
+## Reference Docs
+
+- Constraint contract: `docs/constraint_contract.md`
+- Performance baseline: `docs/performance_baseline.md`
+- Replay and events: `docs/replay_and_events.md`
+
+---
+
 ## License
 
 MIT

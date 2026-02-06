@@ -1,0 +1,22 @@
+{
+  "profiles": {
+    "local-warning": {
+      "warn_mean_latency_ms": 3000,
+      "warn_p95_latency_ms": 3500,
+      "warn_peak_memory_mib": 5.0,
+      "strict": false
+    },
+    "ci-warning": {
+      "warn_mean_latency_ms": 3000,
+      "warn_p95_latency_ms": 3500,
+      "warn_peak_memory_mib": 5.0,
+      "strict": false
+    },
+    "ci-strict": {
+      "warn_mean_latency_ms": 3000,
+      "warn_p95_latency_ms": 3500,
+      "warn_peak_memory_mib": 5.0,
+      "strict": true
+    }
+  }
+}

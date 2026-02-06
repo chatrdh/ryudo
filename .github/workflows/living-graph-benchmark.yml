@@ -1,0 +1,74 @@
+name: Living Graph Benchmark
+
+on:
+  pull_request:
+    paths:
+      - "ryudo/core/**"
+      - "benchmarks/**"
+      - ".github/workflows/living-graph-benchmark.yml"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Benchmark mode"
+        required: true
+        default: "warning"
+        type: choice
+        options:
+          - warning
+          - strict
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Benchmark Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "networkx>=3.0" "shapely>=2.0" "pydantic>=2.0"
+
+      - name: Prepare Output Directory
+        run: mkdir -p output
+
+      - name: Resolve Mode
+        id: resolve_mode
+        shell: bash
+        run: |
+          MODE="warning"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            MODE="${{ inputs.mode }}"
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "Benchmark mode: $MODE"
+
+      - name: Run Benchmark (Warning Mode / Non-blocking)
+        if: ${{ steps.resolve_mode.outputs.mode == 'warning' }}
+        continue-on-error: true
+        run: |
+          python benchmarks/living_graph_microbench.py \
+            --threshold-profile ci-warning \
+            --output output/living_graph_benchmark_warning.json
+
+      - name: Run Benchmark (Strict Mode)
+        if: ${{ steps.resolve_mode.outputs.mode == 'strict' }}
+        run: |
+          python benchmarks/living_graph_microbench.py \
+            --threshold-profile ci-strict \
+            --output output/living_graph_benchmark_strict.json
+
+      - name: Upload Benchmark Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: living-graph-benchmark-${{ github.run_id }}
+          path: output/living_graph_benchmark_*.json
+          if-no-files-found: warn
