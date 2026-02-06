@@ -94,9 +94,10 @@ dmypy.json
 *.temp
 *.bak
 
-# Generated HTML maps (keep static/index.html)
+# Generated HTML maps (keep app entry HTML files)
 *.html
 !static/*.html
+!ui/index.html
 
 # Large binary files
 *.pkl
@@ -112,4 +113,4 @@ dmypy.json
 !docs/*.png
 !docs/*.jpg
 
-/Gemini.md
+Gemini.md
